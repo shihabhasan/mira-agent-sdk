@@ -5,6 +5,7 @@ Nested under `mira_agent` rather than shipped as a top-level `mira_core` so it
 cannot collide with anyone else's package. Same implementation the control
 plane runs — see tests/test_conformance.py."""
 
+from .backend import backend, rust_available
 from .checkpoint import (
     Checkpoint,
     Signature,
@@ -33,6 +34,7 @@ from .verify import BundleResult, RecordResult, verify_bundle
 
 __version__ = "0.2.0"
 __all__ = [
+    "backend", "rust_available",
     "Checkpoint", "Signature", "parse_checkpoint", "verify_checkpoint",
     "verify_witnesses",
     "AgentIdentity", "SpiffeId", "SpiffeError", "load_identity",

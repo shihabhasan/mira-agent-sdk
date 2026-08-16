@@ -114,3 +114,64 @@ def test_policy_bundle_digest_matches():
     c = case("policy_bundle")
     bundle = PolicyBundle.from_dict(c["bundle"])
     assert bundle.digest == c["digest"]
+
+
+# ---------------------------------------------------------- both backends
+# The Rust core exists so a Go or Rust gateway can link one implementation
+# instead of maintaining a third. These run the SAME server-generated vectors
+# against it, which is the only proof that means anything.
+
+rust = pytest.importorskip(
+    "mira_agent_core_rs", reason="Rust core not built; see core-rs/README.md"
+)
+
+
+def test_rust_canonicalises_to_the_server_bytes():
+    c = case("statement_canonicalisation")
+    assert rust.canonicalize(json.dumps(c["statement"])) == base64.b64decode(
+        c["canonical_b64"]
+    )
+
+
+def test_rust_record_hash_matches():
+    c = case("statement_canonicalisation")
+    assert rust.record_hash(json.dumps(c["statement"])) == c["record_hash"]
+
+
+def test_rust_dsse_pae_matches():
+    c = case("statement_canonicalisation")
+    payload = canonical(c["statement"])
+    assert rust.pae(PAYLOAD_TYPE, payload) == pae(PAYLOAD_TYPE, payload)
+
+
+def test_rust_signature_is_identical():
+    sig_case, stmt_case = case("signature"), case("statement_canonicalisation")
+    seed = bytes.fromhex(sig_case["seed_hex"])
+    payload = canonical(stmt_case["statement"])
+    assert base64.b64encode(rust.public_from_seed(seed)).decode() == sig_case["public_b64"]
+    assert base64.b64encode(
+        rust.sign(seed, pae(PAYLOAD_TYPE, payload))
+    ).decode() == sig_case["signature_b64"]
+
+
+@pytest.mark.parametrize("sample", case("content_hash")["samples"])
+def test_rust_content_hash_matches(sample):
+    """The case that caught real divergence: an integer past 2^53 must be
+    carried as a string by BOTH implementations, or a record signed by one
+    fails verification by the other."""
+    assert "sha256:" + rust.record_hash(json.dumps(sample["value"])) == sample["hash"]
+
+
+def test_rust_verifies_the_server_mmr_proof():
+    c = case("mmr")
+    leaves = [base64.b64decode(x) for x in c["leaves_b64"]]
+    p = c["proof"]
+    assert rust.hash_leaf(leaves[3]).hex() == c["leaf3_hash_hex"]
+    assert rust.verify_inclusion(leaves[3], 3, p["leaf_pos"], p["path"], p["peaks"])
+    assert rust.verify_root(p["peaks"], p["mmr_size"], c["root_hex"])
+
+
+def test_rust_rejects_a_tampered_leaf():
+    c = case("mmr")
+    p = c["proof"]
+    assert not rust.verify_inclusion(b"tampered", 3, p["leaf_pos"], p["path"], p["peaks"])

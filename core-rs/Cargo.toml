@@ -1,0 +1,31 @@
+[package]
+name = "mira-agent-core-rs"
+version = "0.2.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Rust implementation of the Mira record core, bound into Python"
+
+[lib]
+name = "mira_agent_core_rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# JCS is the load-bearing part and its number formatting is where hand-rolled
+# implementations go wrong, so use a maintained crate rather than reinvent it.
+serde_jcs = "0.2"
+serde_json = "1"
+sha2 = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+base64 = "0.22"
+# optional so the pure-Rust logic can be unit-tested without linking
+# libpython (extension-module deliberately does not link it)
+pyo3 = { version = "0.22", optional = true }
+
+[features]
+default = ["python"]
+python = ["dep:pyo3", "pyo3/extension-module"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

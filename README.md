@@ -205,6 +205,18 @@ pip install mira-agent-core     # just the verifier and primitives
 pip install mira-agent-sdk      # the full client (pulls core in)
 ```
 
+There is a third, optional: `core-rs/` is the same core in Rust. Not for speed
+(it is ~1.6x end to end, and Python's Ed25519 already calls OpenSSL) but so a
+Go or Rust gateway can link **one** implementation rather than becoming a third
+one to keep byte-identical. Pure Python stays the default; opt in with
+`MIRA_CORE_BACKEND=rust`.
+
+The conformance vectors run against both, and they earned their keep on the
+first build: every case passed except an integer past 2^53, where Python
+carries the value as a string and Rust was canonicalising the raw number. Every
+signature over such a record would have verified on one side and failed on the
+other.
+
 ## Status
 
 Working: the gate, client-side signing, batched ingest, offline verification,

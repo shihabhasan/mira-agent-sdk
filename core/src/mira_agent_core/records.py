@@ -23,6 +23,8 @@ from typing import Any
 
 import rfc8785
 
+from .backend import rust as _rust
+
 PAYLOAD_TYPE = "application/vnd.mira.provenance+json"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 PREDICATE_TYPE = "https://liora-ai.co/mira/agent-step/v1"
@@ -49,6 +51,9 @@ def now_ms() -> int:
 
 
 def sha256_hex(data: bytes) -> str:
+    rs = _rust()
+    if rs is not None:
+        return rs.sha256_hex(data)
     return hashlib.sha256(data).hexdigest()
 
 
@@ -71,7 +76,17 @@ def jcs_safe(obj: Any) -> Any:
 
 
 def canonical(obj: Any) -> bytes:
-    """The one canonicalisation. Everything downstream reads these bytes."""
+    """The one canonicalisation. Everything downstream reads these bytes.
+
+    Routes to the Rust core when MIRA_CORE_BACKEND=rust. The two are proven
+    byte-identical by the conformance vectors, so this can never change what a
+    record hashes to — only how fast it gets there.
+    """
+    rs = _rust()
+    if rs is not None:
+        import json as _json
+
+        return rs.canonicalize(_json.dumps(jcs_safe(obj)))
     return rfc8785.dumps(jcs_safe(obj))
 
 
