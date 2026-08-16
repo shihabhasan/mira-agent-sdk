@@ -110,31 +110,109 @@ Each step is signed **by the client** before it leaves your process, so a
 record attests to what your agent did rather than to what a server received.
 The control plane counter-signs and sequences it into the log.
 
-By default the key is ephemeral per process — self-consistent evidence, but not
-yet tied to a durable identity. For non-repudiation across restarts, supply
-one:
+Strongest available evidence wins, and the record always says which:
 
 ```python
+Mira(svid_cert="/run/spire/svid.pem", svid_key="/run/spire/svid.key")
 Mira(signing_key="/etc/mira/agent.pem")     # or MIRA_AGENT_SEED=<32-byte hex>
+Mira()                                       # anonymous, and marked as such
 ```
+
+With a **SPIFFE** X.509 SVID, the workload's `spiffe://` ID is bound into every
+record and the Ed25519 record key is derived from the SVID — so it is stable
+for that SVID's lifetime and rotates with it. Mira consumes an identity here
+rather than becoming an identity provider: SPIFFE proves *who the agent is*,
+Mira proves *what it then did*, and the join is the point.
+
+Without one, records carry `attributable: false`. That is still
+self-consistent evidence — it just never implies an attribution it cannot
+support.
+
+## Policy in Cedar
+
+Cedar has become the dominant language for agent and MCP authorization, so you
+can keep writing it:
+
+```python
+from mira_agent import compile_cedar
+
+bundle = compile_cedar(open("change-control.cedar").read(),
+                       bundle_id="acme/change-control", version="1.0.0")
+mira = Mira(policy=bundle)
+```
+
+```cedar
+@id("BOD-1.1")
+@description("No autonomous deployment to Production.")
+forbid (principal, action == Action::"deploy", resource)
+when { resource.target_instance == "prod" };
+```
+
+**It compiles a strict subset and refuses everything else.** `unless`, `has`,
+`like`, `||`, inequalities, context references and entity hierarchies all raise
+`CedarError` at compile time. A compiler that silently ignores a clause it does
+not understand will one day drop a `forbid` — refusing where a human is
+watching is the only safe failure mode.
+
+## OpenTelemetry
+
+Mira attaches to a tracer you already own. It does not replace your
+observability stack:
+
+```python
+from mira_agent.otel import MiraSpanProcessor
+
+provider.add_span_processor(otlp_processor)           # unchanged
+provider.add_span_processor(MiraSpanProcessor(mira))  # + signed evidence
+```
+
+By default only GenAI spans and anything marked `mira.record=True` are sealed —
+signing every HTTP and DB span buries the evidence that matters in the evidence
+that doesn't. Recording is async and a failure inside the processor can never
+break the traced application.
+
+## Witnessed checkpoints
+
+The log's signature proves it published a root. It does **not** prove the log
+never rewrote history — whoever holds the log key can sign a different root for
+a different past. Witnesses close that gap:
+
+```python
+from mira_agent_core import verify_witnesses
+
+ok, who = verify_witnesses(note, {"witness/alpha": alpha_pub}, threshold=2)
+```
+
+C2SP notes carry many signature lines, so witnessing is additive: a note with
+witnesses still verifies for anyone who only knows the log key.
 
 ## Packages
 
-| module | contains |
-|---|---|
-| `mira_agent.core` | canonical records, DSSE, Ed25519, MMR proofs, checkpoints, the offline verifier |
-| `mira_agent` | the client, the local gate, batching transport |
+Two distributions, so a server or an auditor never has to install a client:
 
-`mira_agent.core` is deliberately dependency-light and is the *same* implementation
-the control plane runs. If the two canonicalised differently by one byte, every
+| distribution | import | contains |
+|---|---|---|
+| `mira-agent-core` | `mira_agent_core` | canonical records, DSSE, Ed25519, MMR proofs, checkpoints, SPIFFE identity, the offline verifier and `mira-verify` |
+| `mira-agent-sdk` | `mira_agent` | the client, the local gate, Cedar front-end, OTel processor, batching transport |
+
+`mira-agent-core` has two dependencies and is the *same* implementation the
+control plane runs. If the two canonicalised differently by one byte, every
 signature would verify against bytes nobody stored — `tests/test_conformance.py`
 pins that against vectors generated from the server.
 
+```bash
+pip install mira-agent-core     # just the verifier and primitives
+pip install mira-agent-sdk      # the full client (pulls core in)
+```
+
 ## Status
 
-Working: the gate, client-side signing, batched ingest, offline verification.
+Working: the gate, client-side signing, batched ingest, offline verification,
+SPIFFE identity binding, the Cedar front-end, the OpenTelemetry span processor,
+and witness co-signature verification.
 
-Not yet: MCP interceptor integration, OpenTelemetry span export, SPIFFE
-identity binding, witnessed checkpoints. See the roadmap before assuming.
+Not yet: the MCP interceptor. SEP-1763 is still a draft with Go and C#
+reference implementations first, so the practical path there is a stdio proxy —
+deliberately not started rather than half-built.
 
 Apache-2.0.

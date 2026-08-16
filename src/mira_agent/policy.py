@@ -22,7 +22,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from mira_agent.core.records import canonical, sha256_hex
+from mira_agent_core.records import canonical, sha256_hex
 
 # The only fields that may influence an outcome. Everything else on a proposal
 # is carried into the record but CANNOT change the answer — a gate an agent can

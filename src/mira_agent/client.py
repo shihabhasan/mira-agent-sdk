@@ -40,8 +40,9 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from mira_agent.core.keys import SigningKey
-from mira_agent.core.records import (
+from mira_agent_core.identity import AgentIdentity, SpiffeError, load_identity
+from mira_agent_core.keys import SigningKey
+from mira_agent_core.records import (
     PAYLOAD_TYPE,
     RecordType,
     build_statement,
@@ -56,7 +57,7 @@ from .policy import Decision, PolicyBundle, evaluate
 
 log = logging.getLogger("mira")
 
-__all__ = ["Mira", "Interdicted", "MiraConfigError", "Decision"]
+__all__ = ["Mira", "Interdicted", "MiraConfigError", "Decision", "current_run"]
 
 
 class Interdicted(RuntimeError):
@@ -91,6 +92,9 @@ class Mira:
         policy: PolicyBundle | dict | None = None,
         agent: str = "agent",
         signing_key: SigningKey | str | Path | None = None,
+        svid_cert: str | Path | None = None,
+        svid_key: str | Path | None = None,
+        spiffe_id: str | None = None,
         offline: bool = False,
         fail_closed: bool = True,
     ):
@@ -102,22 +106,28 @@ class Mira:
         self._lock = threading.Lock()
 
         # ---- identity: this agent signs its own claims -------------------
+        # Strongest available evidence wins: a SPIFFE SVID, then an explicit
+        # key, then an ephemeral one. The record always states which, so an
+        # anonymous agent never reads as an attributed one.
+        explicit: SigningKey | None = None
         if isinstance(signing_key, SigningKey):
-            self.key = signing_key
+            explicit = signing_key
         elif signing_key is not None:
-            self.key = SigningKey.load(f"mira/agent/{agent}", signing_key)
-        else:
-            env_seed = os.environ.get("MIRA_AGENT_SEED")
-            if env_seed:
-                self.key = SigningKey.from_seed(
-                    f"mira/agent/{agent}", bytes.fromhex(env_seed)
-                )
-            else:
-                # Ephemeral by default. The public key travels with every
-                # record, so the evidence is still self-consistent; it just
-                # cannot be tied to a long-lived identity until one is
-                # registered. Honest default, no silent key files.
-                self.key = SigningKey.generate(f"mira/agent/{agent}")
+            explicit = SigningKey.load(f"mira/agent/{agent}", signing_key)
+        elif (env_seed := os.environ.get("MIRA_AGENT_SEED")):
+            explicit = SigningKey.from_seed(f"mira/agent/{agent}", bytes.fromhex(env_seed))
+
+        svid_cert = svid_cert or os.environ.get("MIRA_SVID_CERT")
+        svid_key = svid_key or os.environ.get("MIRA_SVID_KEY")
+        spiffe_id = spiffe_id or os.environ.get("MIRA_SPIFFE_ID")
+
+        self.identity = load_identity(
+            name=agent, svid_cert=svid_cert, svid_key=svid_key,
+            spiffe_id=spiffe_id, signing_key=explicit,
+        )
+        self.key = self.identity.key
+        if self.identity.spiffe:
+            self.agent = self.identity.name
 
         # ---- policy: pinned at startup, evaluated locally ----------------
         self.bundle: PolicyBundle | None = None
@@ -309,6 +319,15 @@ def _get_current():
     return getattr(_CURRENT, "value", None)
 
 
+def current_run():
+    """The run active on this thread, or None.
+
+    Public so the OTel span processor can attach spans to the right lineage
+    without the client having to know about tracing.
+    """
+    return _get_current()
+
+
 def _set_current(run):
     _CURRENT.value = run
 
@@ -417,8 +436,8 @@ class Run:
                 mmr_size_before=-1,  # the log assigns this; the client cannot know it
                 predicate={
                     **(predicate or {}),
-                    "agent": self.mira.agent,
-                    "sdk": "mira-agent-sdk/0.1.0",
+                    **self.mira.identity.to_predicate(),
+                    "sdk": "mira-agent-sdk/0.2.0",
                 },
                 subject=subject,
                 ts_ms=ts_ms,
@@ -448,6 +467,7 @@ class Run:
                 "envelope": envelope,
                 "agent_public_b64": self.mira.key.public_b64,
                 "agent_key_name": self.mira.key.name,
+                "spiffe_id": self.mira.identity.spiffe.uri if self.mira.identity.spiffe else None,
                 "content": content,
             })
         return record_hash

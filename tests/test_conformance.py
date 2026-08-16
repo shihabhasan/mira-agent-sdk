@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from mira_agent.core import (
+from mira_agent_core import (
     PAYLOAD_TYPE,
     SigningKey,
     canonical,
@@ -29,7 +29,7 @@ from mira_agent.core import (
     sha256_hex,
     verify_signature,
 )
-from mira_agent.core.mmr import InclusionProof, verify_inclusion, verify_root
+from mira_agent_core.mmr import InclusionProof, verify_inclusion, verify_root
 from mira_agent.policy import PolicyBundle
 
 VECTORS = json.loads(
