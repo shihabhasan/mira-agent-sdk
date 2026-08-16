@@ -216,7 +216,7 @@ mod python {
     #[pyo3(name = "canonicalize")]
     fn py_canonicalize(py: Python<'_>, json_text: &str) -> PyResult<Py<PyBytes>> {
     let bytes = canonicalize(json_text).map_err(PyValueError::new_err)?;
-    Ok(PyBytes::new_bound(py, &bytes).unbind())
+    Ok(PyBytes::new(py, &bytes).unbind())
     }
 
     #[pyfunction]
@@ -228,7 +228,7 @@ mod python {
     #[pyfunction]
     #[pyo3(name = "pae")]
     fn py_pae(py: Python<'_>, payload_type: &str, payload: &[u8]) -> Py<PyBytes> {
-    PyBytes::new_bound(py, &pae(payload_type, payload)).unbind()
+    PyBytes::new(py, &pae(payload_type, payload)).unbind()
     }
 
     #[pyfunction]
@@ -245,7 +245,7 @@ mod python {
         .try_into()
         .map_err(|_| PyTypeError::new_err("Ed25519 seed must be exactly 32 bytes"))?;
     let key = SigningKey::from_bytes(&seed);
-    Ok(PyBytes::new_bound(py, &key.sign(message).to_bytes()).unbind())
+    Ok(PyBytes::new(py, &key.sign(message).to_bytes()).unbind())
     }
 
     #[pyfunction]
@@ -255,7 +255,7 @@ mod python {
         .try_into()
         .map_err(|_| PyTypeError::new_err("Ed25519 seed must be exactly 32 bytes"))?;
     let key = SigningKey::from_bytes(&seed);
-    Ok(PyBytes::new_bound(py, key.verifying_key().as_bytes()).unbind())
+    Ok(PyBytes::new(py, key.verifying_key().as_bytes()).unbind())
     }
 
     /// Verify a raw Ed25519 signature. Never raises: a bad signature is an answer.
@@ -279,7 +279,7 @@ mod python {
     #[pyfunction]
     #[pyo3(name = "hash_leaf")]
     fn py_hash_leaf(py: Python<'_>, payload: &[u8]) -> Py<PyBytes> {
-    PyBytes::new_bound(py, &hash_leaf(payload)).unbind()
+    PyBytes::new(py, &hash_leaf(payload)).unbind()
     }
 
     #[pyfunction]

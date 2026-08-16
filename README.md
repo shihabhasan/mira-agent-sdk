@@ -209,7 +209,8 @@ There is a third, optional: `core-rs/` is the same core in Rust. Not for speed
 (it is ~1.6x end to end, and Python's Ed25519 already calls OpenSSL) but so a
 Go or Rust gateway can link **one** implementation rather than becoming a third
 one to keep byte-identical. Pure Python stays the default; opt in with
-`MIRA_CORE_BACKEND=rust`.
+`MIRA_CORE_BACKEND=rust`. It builds against the stable ABI, so one binary
+covers CPython 3.11 through 3.14.
 
 The conformance vectors run against both, and they earned their keep on the
 first build: every case passed except an integer past 2^53, where Python

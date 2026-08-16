@@ -33,12 +33,15 @@ other. The vectors caught it before a line of it shipped.
 
 ```bash
 cargo test --no-default-features     # pure-Rust logic, no libpython needed
-PYO3_PYTHON=/path/to/python3.12 cargo build --release
+cargo build --release                # the Python extension
 ```
 
-Needs a C toolchain (`build-essential` on Debian/Ubuntu). PyO3 0.22 supports
-Python up to 3.13, so point `PYO3_PYTHON` at a suitable interpreter if the
-system default is newer.
+Needs a C toolchain (`build-essential` on Debian/Ubuntu).
+
+Built against the **stable ABI** (`abi3-py311` on PyO3 0.29), so one artefact
+loads on CPython 3.11 through 3.14 and beyond rather than needing a wheel per
+interpreter. Verified: the same `.so` loads and produces identical hashes under
+both 3.12 and 3.14.
 
 ## Use from Python
 

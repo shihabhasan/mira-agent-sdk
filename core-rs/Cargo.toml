@@ -19,11 +19,14 @@ ed25519-dalek = { version = "2", features = ["rand_core"] }
 base64 = "0.22"
 # optional so the pure-Rust logic can be unit-tested without linking
 # libpython (extension-module deliberately does not link it)
-pyo3 = { version = "0.22", optional = true }
+pyo3 = { version = "0.29", optional = true }
 
 [features]
 default = ["python"]
-python = ["dep:pyo3", "pyo3/extension-module"]
+# abi3-py311 builds ONE extension that loads on CPython 3.11 through 3.14+,
+# rather than a wheel per interpreter. For a library other people install,
+# that is the difference between one artefact and a build matrix.
+python = ["dep:pyo3", "pyo3/extension-module", "pyo3/abi3-py311"]
 
 [profile.release]
 opt-level = 3
