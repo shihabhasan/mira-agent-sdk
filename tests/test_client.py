@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from mira_sdk import Interdicted, Mira, MiraConfigError, PolicyBundle
+from mira_agent import Interdicted, Mira, MiraConfigError, PolicyBundle
 
 BUNDLE = {
     "bundle_id": "test/change-control",

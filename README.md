@@ -1,4 +1,4 @@
-# mira-sdk
+# mira-agent-sdk
 
 Governance and verifiable provenance for AI agents.
 
@@ -11,13 +11,13 @@ on purpose:
   verifiable log. After the fact, nobody can quietly change it.
 
 ```bash
-pip install mira-sdk
+pip install mira-agent-sdk
 ```
 
 ## The gate
 
 ```python
-from mira_sdk import Mira, Interdicted
+from mira_agent import Mira, Interdicted
 
 mira = Mira()                       # MIRA_API_KEY / MIRA_BASE_URL from env
 
@@ -122,10 +122,10 @@ Mira(signing_key="/etc/mira/agent.pem")     # or MIRA_AGENT_SEED=<32-byte hex>
 
 | module | contains |
 |---|---|
-| `mira_core` | canonical records, DSSE, Ed25519, MMR proofs, checkpoints, the offline verifier |
-| `mira_sdk` | the client, the local gate, batching transport |
+| `mira_agent.core` | canonical records, DSSE, Ed25519, MMR proofs, checkpoints, the offline verifier |
+| `mira_agent` | the client, the local gate, batching transport |
 
-`mira_core` is deliberately dependency-light and is the *same* implementation
+`mira_agent.core` is deliberately dependency-light and is the *same* implementation
 the control plane runs. If the two canonicalised differently by one byte, every
 signature would verify against bytes nobody stored — `tests/test_conformance.py`
 pins that against vectors generated from the server.

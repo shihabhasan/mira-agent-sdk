@@ -1,5 +1,5 @@
 [project]
-name = "mira-sdk"
+name = "mira-agent-sdk"
 version = "0.1.0"
 description = "Governance and verifiable provenance for AI agents — the client for Mira"
 readme = "README.md"
@@ -21,14 +21,14 @@ otel = ["opentelemetry-sdk>=1.30"]
 dev = ["pytest>=8", "httpx>=0.27", "opentelemetry-sdk>=1.30"]
 
 [project.scripts]
-mira-verify = "mira_core.cli:main"
+mira-verify = "mira_agent.core.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/mira_core", "src/mira_sdk"]
+packages = ["src/mira_agent"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

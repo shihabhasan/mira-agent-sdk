@@ -1,6 +1,9 @@
-"""Mira core primitives: canonical records, keys, accumulator proofs, offline
-verification. Shared by the SDK and the control plane so canonicalisation
-cannot drift between them."""
+"""Core primitives: canonical records, keys, accumulator proofs, offline
+verification.
+
+Nested under `mira_agent` rather than shipped as a top-level `mira_core` so it
+cannot collide with anyone else's package. Same implementation the control
+plane runs — see tests/test_conformance.py."""
 
 from .checkpoint import Checkpoint, parse_checkpoint, verify_checkpoint
 from .keys import SigningKey, key_id

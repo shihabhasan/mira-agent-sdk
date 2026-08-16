@@ -1,6 +1,6 @@
 """Mira SDK — governance and verifiable provenance for AI agents."""
 
-from mira_core import verify_bundle
+from mira_agent.core import verify_bundle
 
 from .client import Decision, Interdicted, Mira, MiraConfigError, Run
 from .policy import PolicyBundle, Rule, evaluate

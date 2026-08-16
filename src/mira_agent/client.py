@@ -1,6 +1,6 @@
 """The Mira client: authorize actions, and leave signed evidence.
 
-    from mira_sdk import Mira
+    from mira_agent import Mira
 
     mira = Mira()                                  # MIRA_API_KEY from env
 
@@ -40,8 +40,8 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from mira_core.keys import SigningKey
-from mira_core.records import (
+from mira_agent.core.keys import SigningKey
+from mira_agent.core.records import (
     PAYLOAD_TYPE,
     RecordType,
     build_statement,
@@ -418,7 +418,7 @@ class Run:
                 predicate={
                     **(predicate or {}),
                     "agent": self.mira.agent,
-                    "sdk": "mira-sdk/0.1.0",
+                    "sdk": "mira-agent-sdk/0.1.0",
                 },
                 subject=subject,
                 ts_ms=ts_ms,

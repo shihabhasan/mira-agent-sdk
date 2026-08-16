@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from mira_core import verify_bundle
-from mira_core.cli import main as cli_main
+from mira_agent.core import verify_bundle
+from mira_agent.core.cli import main as cli_main
 
 BUNDLE_PATH = Path(__file__).parent / "data" / "bundle.json"
 
