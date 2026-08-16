@@ -1,0 +1,34 @@
+[project]
+name = "mira-sdk"
+version = "0.1.0"
+description = "Governance and verifiable provenance for AI agents — the client for Mira"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [{ name = "Liora AI" }]
+keywords = ["ai-agents", "governance", "provenance", "audit", "policy", "in-toto"]
+
+# Deliberately tiny. This lands in other people's agents, so every dependency
+# is one we would defend: canonical JSON and Ed25519, nothing else.
+dependencies = [
+  "rfc8785>=0.1.4",
+  "cryptography>=42",
+]
+
+[project.optional-dependencies]
+http = ["httpx>=0.27"]
+otel = ["opentelemetry-sdk>=1.30"]
+dev = ["pytest>=8", "httpx>=0.27", "opentelemetry-sdk>=1.30"]
+
+[project.scripts]
+mira-verify = "mira_core.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mira_core", "src/mira_sdk"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

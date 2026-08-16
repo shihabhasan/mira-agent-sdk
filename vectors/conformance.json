@@ -1,0 +1,193 @@
+{
+  "generated_by": "mira control plane",
+  "cases": [
+    {
+      "name": "statement_canonicalisation",
+      "statement": {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+          {
+            "name": "output",
+            "digest": {
+              "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            }
+          }
+        ],
+        "predicateType": "https://liora-ai.co/mira/agent-step/v1",
+        "predicate": {
+          "recordType": "SPAN",
+          "identity": {
+            "miraTxnId": "txn-conformance01",
+            "threadId": "txn-conformance01",
+            "legId": 1
+          },
+          "otel": {
+            "traceId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "spanId": "cccccccccccccccc"
+          },
+          "langgraph": {
+            "node": "risk_underwriter",
+            "step": 2,
+            "attempt": 1
+          },
+          "chain": {
+            "seq": 3,
+            "prevRecordHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mmrSizeBefore": 7
+          },
+          "tsMs": 1760000000000,
+          "inputHash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "policyContext": "demo"
+        }
+      },
+      "canonical_b64": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiY2hhaW4iOnsibW1yU2l6ZUJlZm9yZSI6NywicHJldlJlY29yZEhhc2giOiJhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwic2VxIjozfSwiaWRlbnRpdHkiOnsibGVnSWQiOjEsIm1pcmFUeG5JZCI6InR4bi1jb25mb3JtYW5jZTAxIiwidGhyZWFkSWQiOiJ0eG4tY29uZm9ybWFuY2UwMSJ9LCJpbnB1dEhhc2giOiJzaGEyNTY6ZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZSIsImxhbmdncmFwaCI6eyJhdHRlbXB0IjoxLCJub2RlIjoicmlza191bmRlcndyaXRlciIsInN0ZXAiOjJ9LCJvdGVsIjp7InNwYW5JZCI6ImNjY2NjY2NjY2NjY2NjY2MiLCJ0cmFjZUlkIjoiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmIifSwicG9saWN5Q29udGV4dCI6ImRlbW8iLCJyZWNvcmRUeXBlIjoiU1BBTiIsInRzTXMiOjE3NjAwMDAwMDAwMDB9LCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9saW9yYS1haS5jby9taXJhL2FnZW50LXN0ZXAvdjEiLCJzdWJqZWN0IjpbeyJkaWdlc3QiOnsic2hhMjU2IjoiZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZCJ9LCJuYW1lIjoib3V0cHV0In1dfQ==",
+      "record_hash": "440f2ce3f0d5bbf8a58066e37e3acbc6024031962b033ca6e134b131570ab74a",
+      "pae_sha256": "3d356f607ed7b0bdb11f6993378bae884054bd2586b5b6f7046e0fc700ab5c0f"
+    },
+    {
+      "name": "signature",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "key_name": "mira/agent/test",
+      "key_id": "ad9cbce5",
+      "public_b64": "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=",
+      "signature_b64": "g+d2q5fh3MULj8kWdQZ42fxLRpAXxkn62AAMyFwFMPK/EdO1c0PVpqXKc5dHRW6Aac3ipgX8S6FR/ASzdckvDw=="
+    },
+    {
+      "name": "content_hash",
+      "samples": [
+        {
+          "value": {
+            "b": 1,
+            "a": [
+              1,
+              2,
+              {
+                "z": null
+              }
+            ]
+          },
+          "hash": "sha256:c37e4b596c6f78ef248a550ad50e4999047c3d51d63e0255339d0e733423de84"
+        },
+        {
+          "value": "plain string",
+          "hash": "sha256:100e95befce5c34a8927f2359d07d340222625dd67a32ea9c96031c7f9b5f74a"
+        },
+        {
+          "value": [],
+          "hash": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        {
+          "value": {
+            "n": 9007199254740993
+          },
+          "hash": "sha256:3bbb752b000e9ac58b939c07bb99307d18ccc5be92189d3c32738ec24c98579f"
+        }
+      ]
+    },
+    {
+      "name": "mmr",
+      "leaves_b64": [
+        "bGVhZi0w",
+        "bGVhZi0x",
+        "bGVhZi0y",
+        "bGVhZi0z",
+        "bGVhZi00"
+      ],
+      "size": 8,
+      "root_hex": "6f81ee4479e91a50b90a1583ae5b30afe511f285c898afe7d2f3b154f4dfed81",
+      "leaf3_hash_hex": "f76836325aec5699d8d71f8e42e9d47c5c29b08059ba296384f7ca40ad3a40ae",
+      "proof": {
+        "leaf_pos": 4,
+        "mmr_size": 8,
+        "path": [
+          "fca89f57c9f8c8eb4047a7ff9d333acf9e0f3384b20b255bceab0f216dcca267",
+          "bf375340cc3b22412476eb3181de7dcf6b2797d8d07e727acb836a02a8a4960d"
+        ],
+        "peaks": [
+          "0f773c25ba4efce91623ca84ca5cd8e096694cda51b30fe443cdcc5cbf52e374",
+          "ea9fc1a1b6e191b460d0d6306e3e870c173f39330f13cda1b70cfc72bdc398ba"
+        ]
+      }
+    },
+    {
+      "name": "policy_bundle",
+      "bundle": {
+        "bundle_id": "xtype/servicenow-change-control",
+        "version": "2.4.0",
+        "default_effect": "deny",
+        "rules": [
+          {
+            "id": "BOD-1.1",
+            "effect": "deny",
+            "description": "No autonomous deployment to Production. Production promotion requires a human release manager's approval; an agent may stage the change but never land it.",
+            "match": {
+              "action": "deploy",
+              "target_instance": "prod"
+            }
+          },
+          {
+            "id": "BOD-1.2",
+            "effect": "deny",
+            "description": "No destructive operations on Production data by any non-human principal, under any change window.",
+            "match": {
+              "action": [
+                "drop_table",
+                "purge",
+                "truncate"
+              ],
+              "target_instance": "prod"
+            }
+          },
+          {
+            "id": "BOD-1.3",
+            "effect": "deny",
+            "description": "No cloning over a Production instance \u2014 a clone-over-prod destroys the estate's audit history.",
+            "match": {
+              "action": "clone",
+              "target_instance": "prod"
+            }
+          },
+          {
+            "id": "BOD-2.1",
+            "effect": "allow",
+            "description": "Agents may deploy update sets freely to non-production instances; that is the velocity the estate is designed for.",
+            "match": {
+              "action": "deploy",
+              "target_instance": [
+                "dev",
+                "test",
+                "uat"
+              ]
+            }
+          },
+          {
+            "id": "BOD-2.2",
+            "effect": "allow",
+            "description": "Agents may clone Production down to a lower instance.",
+            "match": {
+              "action": "clone",
+              "target_instance": [
+                "dev",
+                "test",
+                "uat"
+              ]
+            }
+          },
+          {
+            "id": "BOD-2.3",
+            "effect": "allow",
+            "description": "Read-only inspection of any instance is always permitted.",
+            "match": {
+              "action": [
+                "diff",
+                "inspect",
+                "validate"
+              ]
+            }
+          }
+        ]
+      },
+      "digest": "sha256:1576977e06660ed76465528adbd4b3f2fd8773c8375a4f3ddc62c24f0610b543"
+    }
+  ]
+}
