@@ -78,6 +78,68 @@ The record queue is bounded (10,000 by default). On overflow the **oldest**
 record is dropped and counted in `mira.stats` — the newest evidence is the
 evidence you most likely still need.
 
+## Zero-Bypass, and what this library can honestly claim
+
+Everything above governs an agent that calls it. An agent that does not is
+ungoverned, and nothing here can change that — a library cannot enforce its own
+use. Zero-bypass is a property of the network: run
+[Sentry](https://github.com/shihabhasan/liora), restrict egress to the instance
+so it is reachable only through Sentry, and never issue an instance credential
+to an agent. Then an agent that routes around the gate arrives with nothing to
+authenticate as.
+
+`SentryClient` is this side of that arrangement. It does not enforce anything.
+It makes the honest mistakes hard, and it produces evidence the gateway cannot
+produce on its own.
+
+```python
+from mira_agent import Mira, SentryClient, Interdicted
+
+mira = Mira(api_key=..., endpoint="https://app.liora-ai.co")
+sn = SentryClient("https://sentry.internal:8790", token=AGENT_TOKEN, mira=mira)
+
+with mira.run("CHG-0048817") as run:
+    sn.bind(run)
+    try:
+        sn.post("acme-prod", "/api/sn_cicd/app/batch/install",
+                json={"update_set": "SLA_RECALC_v7"},
+                justification="scheduled release for INC0012345")
+    except Interdicted as e:
+        # the same exception a local require() raises, so existing recovery
+        # code needs no new branch for the gateway
+        assert e.decision.rule_id == "BOD-1.1"
+        sn.post("acme-dev", "/api/sn_cicd/app/batch/install", json={...})
+```
+
+**It addresses target names, not URLs.** `sn.post("acme-prod", ...)` works;
+passing a URL raises. A client that accepts arbitrary URLs is one typo from
+talking to the instance directly, and that mistake is silent — the call
+succeeds and the only trace of the ungoverned action is its absence from the
+ledger. Reaching an instance directly should require reaching for a different
+library, which is a visible act rather than a slip.
+
+**A refusal arrives as `Interdicted`,** carrying the rule, reason and bundle
+digest — identical in shape to a local refusal, so a pipeline that already
+re-targets after a denial needs no gateway-specific handling.
+
+**It signs the agent's own account of the call.** Sentry's decision is sealed
+by the control plane as the *gateway's* claim. Every call through this client
+also records the agent's claim, naming the gateway id and the sequence number
+Sentry returned:
+
+```
+agent  : sentry:post:acme-prod  deny  gw=gw_e2e seq=1 rule=BOD-1.1
+gateway: seq 1  deny  BOD-1.1  deploy->prod  agent=spiffe://acme/agent/release-bot
+```
+
+Two independent accounts of one action mean a disagreement between them is
+detectable. One account is just a log.
+
+**It raises `PolicySkew` when the two policies differ.** If the pinned bundle's
+digest and the gateway's do not match, neither answer means what it appears to,
+so the client refuses rather than preferring one silently — which is how a
+policy update half-lands across an estate and nobody notices for a month.
+
 ## Verifying, offline
 
 Every install ships a verifier that needs no network and no Mira account:
