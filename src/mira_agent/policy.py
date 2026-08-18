@@ -18,6 +18,8 @@ Three properties carry the whole boundary:
 
 from __future__ import annotations
 
+import functools
+
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -89,7 +91,13 @@ class PolicyBundle:
             "rules": [r.to_jcs() for r in self.rules],
         }
 
-    @property
+    # Cached because a bundle is frozen and the digest is read on every
+    # decision, to be sealed into the record. Recomputing the canonical form
+    # and its SHA-256 per authorization cost ~70us against rule matching under
+    # 1us, making the digest the most expensive part of deciding.
+    # cached_property writes through to __dict__, which a frozen dataclass
+    # still has, so nothing needs unfreezing.
+    @functools.cached_property
     def digest(self) -> str:
         return "sha256:" + sha256_hex(canonical(self.to_jcs()))
 

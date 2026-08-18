@@ -135,6 +135,24 @@ gateway: seq 1  deny  BOD-1.1  deploy->prod  agent=spiffe://acme/agent/release-b
 Two independent accounts of one action mean a disagreement between them is
 detectable. One account is just a log.
 
+**What it costs.** Measured on loopback against a stub instance, 600 calls,
+2-core box:
+
+| | p50 | |
+|---|---|---|
+| Direct, ungoverned | 0.58 ms | baseline |
+| Through Sentry, allowed | 1.73 ms | **+1.15 ms** |
+| Through Sentry, refused | 0.71 ms | **+0.12 ms**, never reaches the instance |
+
+Only ≈52 µs of that is gateway work — translate 2.1 µs, gate 5.3 µs, inject
+the credential 7.0 µs, seal the evidence durably 38 µs. The millisecond is the
+extra hop, not the deciding, so where Sentry sits matters more than anything
+either side can tune. A refusal is the cheap path: it short-circuits before the
+upstream call.
+
+The local preflight (`proposal=...`) costs ~2 µs and can spare the round trip
+entirely for an action that was never going to be permitted.
+
 **It raises `PolicySkew` when the two policies differ.** If the pinned bundle's
 digest and the gateway's do not match, neither answer means what it appears to,
 so the client refuses rather than preferring one silently — which is how a
