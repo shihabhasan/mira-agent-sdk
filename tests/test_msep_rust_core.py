@@ -72,4 +72,4 @@ def test_unknown_key_is_reported_once(world):
     ring, keys, perms, st, env = world
     rs, py = both(env, keys=KeyCache(), epoch=TrustEpoch(2), destination="node-b", state=st,
                   policy_digest=POLICY, now_ms=T0 + 1)
-    assert rs == py == ["signing_key_unknown"] or rs == py
+    assert rs == py == ["unknown_signing_key"]

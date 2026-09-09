@@ -242,6 +242,15 @@ milliseconds, against which either is noise. The reasons that hold at any
 scale are availability, sovereignty and reach — a hop that decides locally
 keeps deciding when the control plane is unreachable.
 
+With 0.4.0 the whole of `verify_inbound` that is a pure function of the
+envelope, the key, the clock and the presented state — signature, expiry,
+epoch, policy digest, destination, depth, state digest and the permission
+bound — runs as one Rust call. What stays in Python is what needs host state:
+the replay window, adverse trust cards, the drift score. A full inbound
+verification measures about **91 µs** against 144 µs on the pure-Python
+path on the same box; `tests/test_msep_rust_core.py` proves the two paths
+reject identically across every tampering the protocol tests describe.
+
 The MAC mode trades a forgery-proof signature for a shared key. Any holder of
 that key can mint a valid tag, so it must never cross a boundary that has to
 be unable to forge, and it brings a key-distribution problem the signature
@@ -389,7 +398,7 @@ other.
 
 ## Status
 
-`mira_agent.msep` (0.3.0): the protocol core, ported from and pinned to the
+`mira_agent.msep` (0.4.0): the protocol core, ported from and pinned to the
 control plane's implementation by `vectors/msep.json`; 100+ tests, the same
 suites the server runs.
 
