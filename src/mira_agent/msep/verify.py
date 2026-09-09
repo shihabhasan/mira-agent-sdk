@@ -29,6 +29,7 @@ import time
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from mira_agent.msep import fast
 from mira_agent.msep.envelope import Envelope, ExecutionState
 from mira_agent.msep.trust import AdverseTrustAssertion, Severity, TrustEpoch
 
@@ -135,6 +136,10 @@ class ReplayWindow:
         return True
 
 
+# The Rust core, when the build has it. Switchable so the two paths can be
+# compared on the same inputs.
+_USE_RS = bool(getattr(fast, "_rs", None) and hasattr(fast._rs, "verify_inbound"))
+
 _RESOLUTION_REJECTS = {
     "unknown": Reject.UNKNOWN_KEY, "revoked": Reject.KEY_REVOKED,
     "expired": Reject.KEY_EXPIRED, "not_yet_valid": Reject.KEY_EXPIRED,
@@ -178,31 +183,51 @@ def verify_inbound(
         pub = keys.get(env.key_id)
         if pub is None:
             bad.append(Reject.UNKNOWN_KEY)
-    if pub is not None and not env.signature_valid(pub):
-        bad.append(Reject.BAD_SIGNATURE)
 
-    if now > env.expires_ms:
-        bad.append(Reject.EXPIRED)
-    if now + epoch.max_skew_ms < env.issued_ms:
-        bad.append(Reject.NOT_YET_VALID)
-    if not epoch.accepts(env.epoch):
-        bad.append(Reject.STALE_EPOCH)
-        detail = f"envelope epoch {env.epoch} < accepted {epoch.current}"
-    if policy_digest is not None and env.policy_digest != policy_digest:
-        bad.append(Reject.POLICY_MISMATCH)
-    if env.scope != destination:
-        bad.append(Reject.WRONG_DESTINATION)
-        detail = detail or f"envelope is scoped to {env.scope!r}, not {destination!r}"
-    if env.depth > env.max_depth:
-        bad.append(Reject.DEPTH_EXCEEDED)
-    if replay is not None and not replay.check_and_add(env.nonce, now):
-        bad.append(Reject.REPLAY)
+    if _USE_RS and env.alg == fast.ALGORITHM:
+        # The pure checks, in one Rust call: signature, clock, epoch, policy,
+        # destination, depth, state digest, permission bound. Python keeps
+        # what needs host state - replay memory, adverse cards, drift.
+        import json as _json
+        names = fast._rs.verify_inbound(
+            _json.dumps(env.signing_body()), env.signature, pub, now, epoch.current,
+            epoch.max_skew_ms, destination,
+            _json.dumps(state.to_jcs()) if state is not None else None, policy_digest)
+        bad.extend(Reject[n] for n in names)
+        if Reject.STALE_EPOCH in bad:
+            detail = detail or f"envelope epoch {env.epoch} < accepted {epoch.current}"
+        if Reject.WRONG_DESTINATION in bad:
+            detail = detail or f"envelope is scoped to {env.scope!r}, not {destination!r}"
+        if replay is not None and not replay.check_and_add(env.nonce, now):
+            bad.append(Reject.REPLAY)
+        permitted_checked = True
+    else:
+        if pub is not None and not env.signature_valid(pub):
+            bad.append(Reject.BAD_SIGNATURE)
 
-    # The envelope commits to a hash of the execution state. Recomputing it
-    # here is what makes tampering with the payload, the action or the ruleset
-    # at an intermediate hop detectable rather than merely discouraged.
-    if state is not None and state.digest() != env.state_digest:
-        bad.append(Reject.STATE_MISMATCH)
+        if now > env.expires_ms:
+            bad.append(Reject.EXPIRED)
+        if now + epoch.max_skew_ms < env.issued_ms:
+            bad.append(Reject.NOT_YET_VALID)
+        if not epoch.accepts(env.epoch):
+            bad.append(Reject.STALE_EPOCH)
+            detail = f"envelope epoch {env.epoch} < accepted {epoch.current}"
+        if policy_digest is not None and env.policy_digest != policy_digest:
+            bad.append(Reject.POLICY_MISMATCH)
+        if env.scope != destination:
+            bad.append(Reject.WRONG_DESTINATION)
+            detail = detail or f"envelope is scoped to {env.scope!r}, not {destination!r}"
+        if env.depth > env.max_depth:
+            bad.append(Reject.DEPTH_EXCEEDED)
+        if replay is not None and not replay.check_and_add(env.nonce, now):
+            bad.append(Reject.REPLAY)
+
+        # The envelope commits to a hash of the execution state. Recomputing it
+        # here is what makes tampering with the payload, the action or the ruleset
+        # at an intermediate hop detectable rather than merely discouraged.
+        if state is not None and state.digest() != env.state_digest:
+            bad.append(Reject.STATE_MISMATCH)
+        permitted_checked = False
 
     # -- adverse trust state ----------------------------------------------
     # The envelope's own claim about the actor's standing is the *weakest*
@@ -228,10 +253,11 @@ def verify_inbound(
             detail = detail or f"boundary holds a terminal Red Card: {local.reason}"
 
     # -- vector 2: deterministic permission bounds ------------------------
-    if state is not None and not env.permissions.permits(
+    if state is not None and not permitted_checked and not env.permissions.permits(
         state.action, state.target, state.artifact
     ):
         bad.append(Reject.NOT_PERMITTED)
+    if Reject.NOT_PERMITTED in bad and state is not None:
         detail = detail or (
             f"{state.action} -> {state.target} ({state.artifact}) is outside the "
             "permission state this envelope carries"

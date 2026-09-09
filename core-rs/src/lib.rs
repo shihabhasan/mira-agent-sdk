@@ -305,6 +305,58 @@ pub fn msep_mac_verify(key: &[u8], body_json: &str, tag_hex: &str) -> bool {
     want.as_bytes().ct_eq(tag.as_slice()).into()
 }
 
+
+/// The verifiable part of `verify_inbound`, in one call.
+///
+/// Everything that is a pure function of the envelope, the key, the clock
+/// and the presented state: signature, expiry, epoch, policy digest,
+/// destination, depth, state digest and the permission bound. Replay memory,
+/// adverse trust state and the drift score stay in Python, because they are
+/// lookups against state the host owns. Returns the names of the `Reject`
+/// variants that fired, in the order the Python implementation fires them.
+pub fn msep_verify_inbound(
+    body_json: &str, sig_hex: &str, pub_bytes: Option<&[u8]>, now_ms: i64,
+    epoch_current: i64, max_skew_ms: i64, destination: &str,
+    state_json: Option<&str>, policy_digest: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let body: serde_json::Value = serde_json::from_str(body_json).map_err(|e| format!("json: {e}"))?;
+    let mut bad: Vec<String> = Vec::new();
+    let canon = canonicalize(body_json)?;
+    if let Some(pk) = pub_bytes {
+        let ok = match msep_parse(sig_hex, pk) {
+            Some((sig, key)) => key.verify(&msep_pae(MSEP_ENVELOPE_CTX, &canon), &sig).is_ok(),
+            None => false,
+        };
+        if !ok { bad.push("BAD_SIGNATURE".into()); }
+    }
+    let i64_of = |k: &str| body.get(k).and_then(|v| v.as_i64()).unwrap_or(0);
+    let str_of = |k: &str| body.get(k).and_then(|v| v.as_str()).unwrap_or("");
+    if now_ms > i64_of("expiresMs") { bad.push("EXPIRED".into()); }
+    if now_ms + max_skew_ms < i64_of("issuedMs") { bad.push("NOT_YET_VALID".into()); }
+    if i64_of("epoch") < epoch_current { bad.push("STALE_EPOCH".into()); }
+    if let Some(pd) = policy_digest {
+        if str_of("policyDigest") != pd { bad.push("POLICY_MISMATCH".into()); }
+    }
+    if str_of("scope") != destination { bad.push("WRONG_DESTINATION".into()); }
+    if i64_of("depth") > i64_of("maxDepth") { bad.push("DEPTH_EXCEEDED".into()); }
+    if let Some(sj) = state_json {
+        let digest = msep_state_digest(sj)?;
+        if str_of("stateDigest") != digest { bad.push("STATE_MISMATCH".into()); }
+        let st: serde_json::Value = serde_json::from_str(sj).map_err(|e| format!("state json: {e}"))?;
+        let s_of = |k: &str| st.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let caps: Vec<(String, String, String)> = body.get("permissions")
+            .and_then(|v| v.as_array()).map(|arr| arr.iter().map(|c| (
+                c.get("action").and_then(|v| v.as_str()).unwrap_or("*").to_string(),
+                c.get("target").and_then(|v| v.as_str()).unwrap_or("*").to_string(),
+                c.get("artifact").and_then(|v| v.as_str()).unwrap_or("*").to_string(),
+            )).collect()).unwrap_or_default();
+        if !msep_permits(&caps, &s_of("action"), &s_of("target"), &s_of("artifact")) {
+            bad.push("NOT_PERMITTED".into());
+        }
+    }
+    Ok(bad)
+}
+
 // ------------------------------------------------------------------ python
 #[cfg(feature = "python")]
 mod python {
@@ -457,6 +509,16 @@ mod python {
         msep_mac_verify(key, body_json, tag_hex)
     }
 
+    #[pyfunction]
+    #[pyo3(name = "verify_inbound")]
+    #[pyo3(signature = (body_json, sig_hex, pub_bytes, now_ms, epoch_current, max_skew_ms, destination, state_json=None, policy_digest=None))]
+    fn py_msep_verify_inbound(body_json: &str, sig_hex: &str, pub_bytes: Option<&[u8]>, now_ms: i64,
+                              epoch_current: i64, max_skew_ms: i64, destination: &str,
+                              state_json: Option<&str>, policy_digest: Option<&str>) -> PyResult<Vec<String>> {
+        msep_verify_inbound(body_json, sig_hex, pub_bytes, now_ms, epoch_current, max_skew_ms,
+                            destination, state_json, policy_digest).map_err(PyValueError::new_err)
+    }
+
     #[pymodule]
     fn mira_agent_core_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("PAYLOAD_TYPE", PAYLOAD_TYPE)?;
@@ -483,6 +545,7 @@ mod python {
     m.add_function(wrap_pyfunction!(py_msep_subsumes, m)?)?;
     m.add_function(wrap_pyfunction!(py_msep_mac_tag, m)?)?;
     m.add_function(wrap_pyfunction!(py_msep_mac_verify, m)?)?;
+    m.add_function(wrap_pyfunction!(py_msep_verify_inbound, m)?)?;
     Ok(())
     }
 
