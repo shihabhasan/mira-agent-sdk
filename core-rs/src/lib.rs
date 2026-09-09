@@ -204,6 +204,107 @@ fn bytes_to_hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
+
+// -------------------------------------------------------------------- MSEP
+//
+// The execution-protocol hot path: the same canonicalisation as the records,
+// under different domain separators, with the length-prefixed encoding the
+// envelope uses. Byte-identical to the control plane's `mira_core`, which the
+// vectors in ../vectors/msep.json prove.
+
+const MSEP_ENVELOPE_CTX: &[u8] = b"MSEP-v1-envelope";
+const MSEP_STATE_CTX: &[u8] = b"MSEP-v1-state";
+const MSEP_MAC_CTX: &[u8] = b"MSEP-v1-mac";
+const MSEP_WILDCARD: &str = "*";
+
+/// `context SP len SP body` — unambiguous, unlike plain concatenation.
+pub fn msep_pae(ctx: &[u8], body: &[u8]) -> Vec<u8> {
+    let len = body.len().to_string();
+    let mut out = Vec::with_capacity(ctx.len() + len.len() + body.len() + 2);
+    out.extend_from_slice(ctx);
+    out.push(b' ');
+    out.extend_from_slice(len.as_bytes());
+    out.push(b' ');
+    out.extend_from_slice(body);
+    out
+}
+
+pub fn msep_envelope_signing_bytes(body_json: &str) -> Result<Vec<u8>, String> {
+    Ok(msep_pae(MSEP_ENVELOPE_CTX, &canonicalize(body_json)?))
+}
+
+pub fn msep_envelope_commitment(body_json: &str) -> Result<String, String> {
+    Ok(format!("sha256:{}", sha256_hex(&msep_envelope_signing_bytes(body_json)?)))
+}
+
+pub fn msep_state_digest(state_json: &str) -> Result<String, String> {
+    Ok(format!("sha256:{}", sha256_hex(&msep_pae(MSEP_STATE_CTX, &canonicalize(state_json)?))))
+}
+
+fn msep_parse(sig_hex: &str, pub_bytes: &[u8]) -> Option<(Signature, VerifyingKey)> {
+    let raw = hex_to_bytes(sig_hex)?;
+    let sig: [u8; 64] = raw.try_into().ok()?;
+    let pk: [u8; 32] = pub_bytes.try_into().ok()?;
+    Some((Signature::from_bytes(&sig), VerifyingKey::from_bytes(&pk).ok()?))
+}
+
+/// Canonicalise, encode and verify. False on any failure: a verifier that
+/// distinguishes "malformed" from "bad signature" by exception is an oracle.
+pub fn msep_verify_envelope(body_json: &str, sig_hex: &str, pub_bytes: &[u8]) -> bool {
+    let (Some((sig, key)), Ok(body)) = (msep_parse(sig_hex, pub_bytes), canonicalize(body_json)) else {
+        return false;
+    };
+    key.verify(&msep_pae(MSEP_ENVELOPE_CTX, &body), &sig).is_ok()
+}
+
+pub fn msep_verify_bytes(signing_bytes: &[u8], sig_hex: &str, pub_bytes: &[u8]) -> bool {
+    match msep_parse(sig_hex, pub_bytes) {
+        Some((sig, key)) => key.verify(signing_bytes, &sig).is_ok(),
+        None => false,
+    }
+}
+
+fn cap_covers(cap: &(String, String, String), a: &str, t: &str, art: &str) -> bool {
+    (cap.0 == MSEP_WILDCARD || cap.0 == a)
+        && (cap.1 == MSEP_WILDCARD || cap.1 == t)
+        && (cap.2 == MSEP_WILDCARD || cap.2 == art)
+}
+
+pub fn msep_permits(caps: &[(String, String, String)], a: &str, t: &str, art: &str) -> bool {
+    caps.iter().any(|c| cap_covers(c, a, t, art))
+}
+
+fn cap_subsumes(mine: &(String, String, String), theirs: &(String, String, String)) -> bool {
+    (mine.0 == MSEP_WILDCARD || mine.0 == theirs.0)
+        && (mine.1 == MSEP_WILDCARD || mine.1 == theirs.1)
+        && (mine.2 == MSEP_WILDCARD || mine.2 == theirs.2)
+}
+
+pub fn msep_subsumes(mine: &[(String, String, String)], other: &[(String, String, String)]) -> bool {
+    other.iter().all(|t| mine.iter().any(|m| cap_subsumes(m, t)))
+}
+
+/// Keyed BLAKE3 over the envelope's signing bytes. Intra-domain only: any
+/// holder of the key can mint a valid tag.
+pub fn msep_mac_tag(key: &[u8], body_json: &str) -> Result<String, String> {
+    let k: [u8; 32] = key.try_into().map_err(|_| "MAC key must be 32 bytes".to_string())?;
+    let msg = msep_pae(MSEP_MAC_CTX, &canonicalize(body_json)?);
+    Ok(bytes_to_hex(blake3::keyed_hash(&k, &msg).as_bytes()))
+}
+
+pub fn msep_mac_verify(key: &[u8], body_json: &str, tag_hex: &str) -> bool {
+    use subtle::ConstantTimeEq;
+    let (Ok(k), Ok(body), Some(tag)) = (
+        <[u8; 32]>::try_from(key),
+        canonicalize(body_json),
+        hex_to_bytes(tag_hex),
+    ) else {
+        return false;
+    };
+    let want = blake3::keyed_hash(&k, &msep_pae(MSEP_MAC_CTX, &body));
+    want.as_bytes().ct_eq(tag.as_slice()).into()
+}
+
 // ------------------------------------------------------------------ python
 #[cfg(feature = "python")]
 mod python {
@@ -301,6 +402,61 @@ mod python {
     B64.encode(data)
     }
 
+
+    // ---- MSEP -------------------------------------------------------------
+    #[pyfunction]
+    #[pyo3(name = "canon")]
+    fn py_msep_canon(py: Python<'_>, json_text: &str) -> PyResult<Py<PyBytes>> {
+        let bytes = canonicalize(json_text).map_err(PyValueError::new_err)?;
+        Ok(PyBytes::new(py, &bytes).unbind())
+    }
+    #[pyfunction]
+    #[pyo3(name = "envelope_signing_bytes")]
+    fn py_msep_signing_bytes(py: Python<'_>, body_json: &str) -> PyResult<Py<PyBytes>> {
+        let b = msep_envelope_signing_bytes(body_json).map_err(PyValueError::new_err)?;
+        Ok(PyBytes::new(py, &b).unbind())
+    }
+    #[pyfunction]
+    #[pyo3(name = "envelope_commitment")]
+    fn py_msep_commitment(body_json: &str) -> PyResult<String> {
+        msep_envelope_commitment(body_json).map_err(PyValueError::new_err)
+    }
+    #[pyfunction]
+    #[pyo3(name = "state_digest")]
+    fn py_msep_state_digest(state_json: &str) -> PyResult<String> {
+        msep_state_digest(state_json).map_err(PyValueError::new_err)
+    }
+    #[pyfunction]
+    #[pyo3(name = "verify_envelope")]
+    fn py_msep_verify_envelope(body_json: &str, sig_hex: &str, pub_bytes: &[u8]) -> bool {
+        msep_verify_envelope(body_json, sig_hex, pub_bytes)
+    }
+    #[pyfunction]
+    #[pyo3(name = "verify_bytes")]
+    fn py_msep_verify_bytes(signing_bytes: &[u8], sig_hex: &str, pub_bytes: &[u8]) -> bool {
+        msep_verify_bytes(signing_bytes, sig_hex, pub_bytes)
+    }
+    #[pyfunction]
+    #[pyo3(name = "permits")]
+    fn py_msep_permits(caps: Vec<(String, String, String)>, a: &str, t: &str, art: &str) -> bool {
+        msep_permits(&caps, a, t, art)
+    }
+    #[pyfunction]
+    #[pyo3(name = "subsumes")]
+    fn py_msep_subsumes(mine: Vec<(String, String, String)>, other: Vec<(String, String, String)>) -> bool {
+        msep_subsumes(&mine, &other)
+    }
+    #[pyfunction]
+    #[pyo3(name = "mac_tag")]
+    fn py_msep_mac_tag(key: &[u8], body_json: &str) -> PyResult<String> {
+        msep_mac_tag(key, body_json).map_err(PyValueError::new_err)
+    }
+    #[pyfunction]
+    #[pyo3(name = "mac_verify")]
+    fn py_msep_mac_verify(key: &[u8], body_json: &str, tag_hex: &str) -> bool {
+        msep_mac_verify(key, body_json, tag_hex)
+    }
+
     #[pymodule]
     fn mira_agent_core_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("PAYLOAD_TYPE", PAYLOAD_TYPE)?;
@@ -315,6 +471,18 @@ mod python {
     m.add_function(wrap_pyfunction!(py_verify_inclusion, m)?)?;
     m.add_function(wrap_pyfunction!(py_verify_root, m)?)?;
     m.add_function(wrap_pyfunction!(py_b64encode, m)?)?;
+    m.add("ALGORITHM", "Ed25519")?;
+    m.add("MAC_ALGORITHM", "BLAKE3-keyed")?;
+    m.add_function(wrap_pyfunction!(py_msep_canon, m)?)?;
+    m.add_function(wrap_pyfunction!(py_msep_signing_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(py_msep_commitment, m)?)?;
+    m.add_function(wrap_pyfunction!(py_msep_state_digest, m)?)?;
+    m.add_function(wrap_pyfunction!(py_msep_verify_envelope, m)?)?;
+    m.add_function(wrap_pyfunction!(py_msep_verify_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(py_msep_permits, m)?)?;
+    m.add_function(wrap_pyfunction!(py_msep_subsumes, m)?)?;
+    m.add_function(wrap_pyfunction!(py_msep_mac_tag, m)?)?;
+    m.add_function(wrap_pyfunction!(py_msep_mac_verify, m)?)?;
     Ok(())
     }
 

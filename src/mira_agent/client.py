@@ -271,6 +271,39 @@ class Mira:
 
     # ------------------------------------------------------------ shutdown
 
+    # ---------------------------------------------------- execution boundary
+    def _request(self, method: str, path: str, body: dict | None = None) -> dict:
+        if not (self.base_url and self.api_key):
+            raise MiraConfigError("this call needs MIRA_BASE_URL and MIRA_API_KEY")
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(
+            f"{self.base_url}{path}", data=data, method=method,
+            headers={"Authorization": f"Bearer {self.api_key}",
+                     "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode())
+
+    def residency(self) -> dict:
+        """Where the ledger and the evidence live, as the deployment declares
+        it: self-hosted or not, region, who holds the signing key, and that no
+        Liora call is needed to seal a record."""
+        return self._request("GET", "/api/v1/residency")
+
+    def boundary_status(self) -> dict:
+        """The workspace's execution boundaries: certificates, freshness, the
+        hot-path implementation and its measured cost, custody, and any Red
+        Cards in force."""
+        return self._request("GET", "/api/msep/boundary")
+
+    def run_chain(self, txn_id: str) -> dict:
+        """The MSEP hop chain for a run: every envelope, verdict and receipt."""
+        return self._request("GET", f"/api/runs/{txn_id}/msep")
+
+    def reinstate(self, subject: str) -> dict:
+        """Lift a terminal Red Card. A new signed event, not an erasure; needs
+        an owner or admin key."""
+        return self._request("POST", "/api/msep/reinstate", {"subject": subject})
+
     def close(self, timeout: float = 10.0) -> None:
         if self._transport:
             self._transport.close(timeout)

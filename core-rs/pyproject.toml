@@ -1,0 +1,12 @@
+[build-system]
+requires = ["maturin>=1.5,<2"]
+build-backend = "maturin"
+
+[project]
+name = "mira_agent_core_rs"
+version = "0.3.0"
+requires-python = ">=3.11"
+
+[tool.maturin]
+module-name = "mira_agent_core_rs"
+features = ["python"]
