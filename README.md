@@ -20,6 +20,21 @@ pip install mira-agent-sdk
 from mira_agent import Mira, Interdicted
 
 mira = Mira()                       # MIRA_API_KEY / MIRA_BASE_URL from env
+```
+
+**Getting a key.** Every call to a Mira instance needs an API key, and keys are
+created in the app: sign in to the console, open **Settings → API keys**, and
+create one (workspace owners and admins only). Give it a role — `member` for
+an agent that authorises and records, `owner` or `admin` if it must reinstate
+a red-carded actor — and copy the secret when it is shown, because it is shown
+once. Then:
+
+```sh
+export MIRA_BASE_URL=https://app.liora-ai.co
+export MIRA_API_KEY=<the key>
+```
+
+```python
 
 with mira.run(intent="Deploy CHG-0048817") as run:
     decision = run.authorize(
