@@ -61,7 +61,7 @@ WILDCARD = "*"
 def _canon(obj: Any) -> bytes:
     """RFC 8785 canonical bytes — the same canonicalisation the ledger uses, so
     a digest computed here means the same thing computed anywhere else."""
-    return rfc8785.dumps(obj)
+    return fast.canon(obj, lambda: rfc8785.dumps(obj))
 
 
 def _pae(context: bytes, body: bytes) -> bytes:

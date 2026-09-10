@@ -40,6 +40,16 @@ def verify_envelope(body: dict, signature_hex: str, public_bytes: bytes,
         return False
 
 
+def canon(obj: Any, fallback) -> bytes:
+    """RFC 8785 canonical bytes. The Python canonicaliser is the single most
+    expensive thing in a hop once verification is in Rust — it ran five times
+    per hop and cost more than the signature it fed — so it goes through the
+    core too. Identical bytes either way; the conformance vectors prove it."""
+    if _rs is not None:
+        return _rs.canon(_j(obj))
+    return fallback()
+
+
 def state_digest(state_jcs: dict, fallback) -> str:
     if _rs is not None:
         return _rs.state_digest(_j(state_jcs))
