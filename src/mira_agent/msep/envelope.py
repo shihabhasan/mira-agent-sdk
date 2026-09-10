@@ -31,10 +31,13 @@ riding alongside it.
 
 from __future__ import annotations
 
+import json
+
 from mira_agent.msep._compat import _kid
 
 import os
 import time
+from functools import cached_property
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
@@ -246,8 +249,26 @@ class Envelope:
             "keyId": self.key_id,
         }
 
-    def signing_bytes(self) -> bytes:
+    # An envelope is immutable, so everything derived from its signing body is
+    # computed once. Before this, one hop encoded the same body nine times and
+    # canonicalised it five: the signature, both commitments, the receipt and
+    # verification each did their own, and together they cost more than the
+    # signature. `replace()` builds a fresh instance, so nothing stale carries.
+    @cached_property
+    def signing_json(self) -> str:
+        """The signing body as compact JSON, for the Rust core."""
+        return json.dumps(self.signing_body(), separators=(",", ":"))
+
+    @cached_property
+    def _signing_bytes(self) -> bytes:
         return _pae(_ENVELOPE_CONTEXT, _canon(self.signing_body()))
+
+    @cached_property
+    def _commitment(self) -> str:
+        return "sha256:" + sha256_hex(self.signing_bytes())
+
+    def signing_bytes(self) -> bytes:
+        return self._signing_bytes
 
     def parents(self) -> tuple[str, ...]:
         """Every commitment this state names as a cause of itself."""
@@ -261,7 +282,7 @@ class Envelope:
         commitment is stable regardless of how the envelope is serialised on
         the wire.
         """
-        return "sha256:" + sha256_hex(self.signing_bytes())
+        return self._commitment
 
     def sign(self, key: SigningKey) -> "Envelope":
         e = replace(self, key_id=_kid(key), alg=fast.ALGORITHM)
@@ -282,7 +303,7 @@ class Envelope:
             return fast.mac_verify(key_bytes, self.signing_body(), self.signature)
         if self.alg != fast.ALGORITHM:
             return False
-        return fast.verify_envelope(self.signing_body(), self.signature, key_bytes,
+        return fast.verify_envelope(self.signing_json, self.signature, key_bytes,
                                     signing_bytes=self.signing_bytes())
 
     # ------------------------------------------------------------ transport

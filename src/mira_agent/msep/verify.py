@@ -190,7 +190,7 @@ def verify_inbound(
         # what needs host state - replay memory, adverse cards, drift.
         import json as _json
         names = fast._rs.verify_inbound(
-            _json.dumps(env.signing_body()), env.signature, pub, now, epoch.current,
+            env.signing_json, env.signature, pub, now, epoch.current,
             epoch.max_skew_ms, destination,
             _json.dumps(state.to_jcs()) if state is not None else None, policy_digest)
         bad.extend(Reject[n] for n in names)

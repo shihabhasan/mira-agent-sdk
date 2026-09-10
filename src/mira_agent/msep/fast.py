@@ -29,10 +29,11 @@ def _j(obj: Any) -> str:
     return json.dumps(obj, separators=(",", ":"))
 
 
-def verify_envelope(body: dict, signature_hex: str, public_bytes: bytes,
+def verify_envelope(body: dict | str, signature_hex: str, public_bytes: bytes,
                     signing_bytes: bytes | None = None) -> bool:
     if _rs is not None:
-        return _rs.verify_envelope(_j(body), signature_hex, public_bytes)
+        return _rs.verify_envelope(body if isinstance(body, str) else _j(body),
+                                   signature_hex, public_bytes)
     from mira_agent_core.keys import verify as verify_signature
     try:
         return verify_signature(public_bytes, bytes.fromhex(signature_hex), signing_bytes)

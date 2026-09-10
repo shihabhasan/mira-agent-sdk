@@ -10,7 +10,7 @@ from .policy import PolicyBundle, Rule, evaluate
 from .sentry import PolicySkew, SentryClient
 from . import msep
 
-__version__ = "0.4.1"
+__version__ = "0.4.2"
 __all__ = [
     "Mira", "Run", "Decision", "Interdicted", "MiraConfigError", "current_run",
     "PolicyBundle", "Rule", "evaluate", "verify_bundle",
