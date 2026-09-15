@@ -1,6 +1,6 @@
 [project]
 name = "mira-agent-sdk"
-version = "0.4.2"
+version = "0.5.0"
 description = "Governance and verifiable provenance for AI agents — the client for Mira"
 readme = "README.md"
 requires-python = ">=3.11"

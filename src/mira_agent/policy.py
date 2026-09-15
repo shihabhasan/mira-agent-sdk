@@ -11,15 +11,28 @@ plane can prove after the fact which ruleset each decision actually used. The
 client cannot quietly diverge without it being visible in the evidence.
 
 Three properties carry the whole boundary:
+
   - deterministic: pure function of (bundle, request). No model, no clock.
-  - ordered: deny clauses before allow clauses, first match wins.
+  - ordered: holds and refusals before releases, first match wins.
   - default-deny: an action nobody wrote a rule for is refused.
+
+Schema v2 adds, without changing what a v1 rule means or hashes to:
+
+  - conditions: threshold tests on examiner *signals*
+    (`signal.prompt_injection >= 0.8`). Signals enter only through the
+    `signals` argument — verified assertions from registered examiners —
+    never from the agent's own proposal.
+  - disposition: release / redact execute; gate / elevate hold; interdict /
+    recover refuse. `effect` stays the allow/deny summary.
+  - escalate_to, evidence, examiners, provenance.
+
+Every v2 field is left out of the canonical form when empty or equal to the
+v1 default, so a bundle written before v2 has exactly the digest it had.
 """
 
 from __future__ import annotations
 
 import functools
-
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -31,6 +44,55 @@ from mira_agent_core.records import canonical, sha256_hex
 # argue with is not a boundary.
 DECISION_FIELDS = ("action", "target_instance", "artifact_type")
 
+DISPOSITIONS = ("release", "redact", "gate", "elevate", "interdict", "recover")
+RELEASING = frozenset({"release", "redact"})
+NUMERIC_OPS = (">=", ">", "<=", "<")
+CONDITION_OPS = NUMERIC_OPS + ("==", "!=")
+SIGNAL_PREFIX = "signal."
+
+
+def effect_for(disposition: str) -> str:
+    return "allow" if disposition in RELEASING else "deny"
+
+
+def default_disposition(effect: str) -> str:
+    return "release" if effect == "allow" else "interdict"
+
+
+def _num(v: Any) -> float | None:
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str):
+        try:
+            return float(v)
+        except ValueError:
+            return None
+    return None
+
+
+@dataclass(frozen=True)
+class Condition:
+    field: str
+    op: str
+    value: Any
+
+    def holds(self, request: dict[str, Any]) -> bool:
+        if self.field not in request:
+            return False
+        actual = request[self.field]
+        if self.op in NUMERIC_OPS:
+            a, b = _num(actual), _num(self.value)
+            if a is None or b is None:
+                return False
+            return {">=": a >= b, ">": a > b, "<=": a <= b, "<": a < b}[self.op]
+        same = actual == self.value or (_num(actual) is not None and _num(actual) == _num(self.value))
+        return same if self.op == "==" else (not same if self.op == "!=" else False)
+
+    def to_jcs(self) -> dict:
+        return {"field": self.field, "op": self.op, "value": self.value}
+
 
 @dataclass(frozen=True)
 class Rule:
@@ -38,6 +100,16 @@ class Rule:
     effect: str  # "allow" | "deny"
     description: str
     match: dict[str, Any] = field(default_factory=dict)
+    conditions: tuple[Condition, ...] = ()
+    disposition: str | None = None
+    escalate_to: str | None = None
+    evidence: tuple[str, ...] = ()
+    examiners: tuple[str, ...] = ()
+    provenance: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def resolved_disposition(self) -> str:
+        return self.disposition or default_disposition(self.effect)
 
     def matches(self, request: dict[str, Any]) -> bool:
         for key, permitted in self.match.items():
@@ -46,10 +118,10 @@ class Rule:
             allowed = permitted if isinstance(permitted, (list, tuple, set)) else [permitted]
             if request[key] not in allowed:
                 return False
-        return True
+        return all(c.holds(request) for c in self.conditions)
 
     def to_jcs(self) -> dict:
-        return {
+        out: dict[str, Any] = {
             "id": self.id,
             "effect": self.effect,
             "description": self.description,
@@ -58,6 +130,38 @@ class Rule:
                 for k, v in sorted(self.match.items())
             },
         }
+        if self.conditions:
+            out["conditions"] = [c.to_jcs() for c in sorted(
+                self.conditions, key=lambda c: (c.field, c.op, str(c.value)))]
+        if self.disposition and self.disposition != default_disposition(self.effect):
+            out["disposition"] = self.disposition
+        if self.escalate_to:
+            out["escalateTo"] = self.escalate_to
+        if self.evidence:
+            out["evidence"] = sorted(self.evidence)
+        if self.examiners:
+            out["examiners"] = sorted(self.examiners)
+        if self.provenance:
+            out["provenance"] = {k: self.provenance[k] for k in sorted(self.provenance)}
+        return out
+
+    @classmethod
+    def from_dict(cls, r: dict) -> "Rule":
+        disposition = r.get("disposition") or None
+        effect = r.get("effect") or (effect_for(disposition) if disposition else None)
+        if effect is None:
+            raise ValueError(f"rule {r.get('id')!r} has neither effect nor disposition")
+        return cls(
+            id=r["id"], effect=effect, description=r.get("description", ""),
+            match=r.get("match", {}) or {},
+            conditions=tuple(Condition(str(c["field"]), str(c["op"]), c.get("value"))
+                             for c in (r.get("conditions") or [])),
+            disposition=disposition,
+            escalate_to=(r.get("escalate_to") or None),
+            evidence=tuple(r.get("evidence") or ()),
+            examiners=tuple(r.get("examiners") or ()),
+            provenance=dict(r.get("provenance") or {}),
+        )
 
 
 @dataclass(frozen=True)
@@ -73,13 +177,7 @@ class PolicyBundle:
             bundle_id=d["bundle_id"],
             version=d["version"],
             default_effect=d.get("default_effect", "deny"),
-            rules=tuple(
-                Rule(
-                    id=r["id"], effect=r["effect"],
-                    description=r.get("description", ""), match=r.get("match", {}),
-                )
-                for r in d["rules"]
-            ),
+            rules=tuple(Rule.from_dict(r) for r in d["rules"]),
         )
 
     def to_jcs(self) -> dict:
@@ -104,6 +202,11 @@ class PolicyBundle:
     def rule(self, rule_id: str) -> Rule | None:
         return next((r for r in self.rules if r.id == rule_id), None)
 
+    @property
+    def signals(self) -> tuple[str, ...]:
+        return tuple(sorted({c.field for r in self.rules for c in r.conditions
+                             if c.field.startswith(SIGNAL_PREFIX)}))
+
 
 @dataclass(frozen=True)
 class Decision:
@@ -117,12 +220,20 @@ class Decision:
     request: dict[str, Any]
     decide_us: float
     evaluated: list[str] = field(default_factory=list)
+    disposition: str = "interdict"
+    escalate_to: str | None = None
+    evidence: tuple[str, ...] = ()
+
+    @property
+    def held(self) -> bool:
+        return self.disposition in ("gate", "elevate")
 
     def to_predicate(self) -> dict:
         """The shape sealed into the record — what an auditor reads to answer
         'permitted under exactly which policy?'."""
-        return {
+        out = {
             "decision": self.effect,
+            "disposition": self.disposition,
             "ruleId": self.rule_id,
             "reason": self.reason,
             "policyBundleId": self.bundle_id,
@@ -132,28 +243,57 @@ class Decision:
             "decideUs": round(self.decide_us, 1),
             "rulesEvaluated": self.evaluated,
         }
+        if self.escalate_to:
+            out["escalateTo"] = self.escalate_to
+        if self.evidence:
+            out["evidence"] = list(self.evidence)
+        return out
 
 
-def decision_request(proposal: dict[str, Any]) -> dict[str, Any]:
-    """Project a proposal down to the fields the gate is allowed to judge."""
-    return {k: proposal[k] for k in DECISION_FIELDS if k in proposal}
+def decision_request(proposal: dict[str, Any],
+                     signals: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Project a proposal down to the fields the gate is allowed to judge.
+    Signals come only from the verified argument; a `signal.*` key the
+    proposal itself carries is discarded."""
+    request = {k: proposal[k] for k in DECISION_FIELDS if k in proposal}
+    for name, value in (signals or {}).items():
+        request[name if name.startswith(SIGNAL_PREFIX) else SIGNAL_PREFIX + name] = value
+    return request
 
 
-def evaluate(proposal: dict[str, Any], bundle: PolicyBundle) -> Decision:
+def _heard_by(rule: Rule, request: dict[str, Any],
+              readings: dict[str, dict[str, Any]] | None) -> dict[str, Any]:
+    """A rule that names its examiners is judged on their readings alone;
+    when they disagree on a score the higher is used. With nothing
+    attributed, the merged signals stand."""
+    if not rule.examiners or not readings:
+        return request
+    out = {k: v for k, v in request.items() if not k.startswith(SIGNAL_PREFIX)}
+    for k in request:
+        if k.startswith(SIGNAL_PREFIX) and k in readings:
+            heard = [readings[k][e] for e in rule.examiners if e in readings[k]]
+            if heard:
+                nums = [h for h in heard if isinstance(h, (int, float)) and not isinstance(h, bool)]
+                out[k] = max(nums) if len(nums) == len(heard) else heard[0]
+    return out
+
+
+def evaluate(proposal: dict[str, Any], bundle: PolicyBundle, *,
+             signals: dict[str, Any] | None = None,
+             readings: dict[str, dict[str, Any]] | None = None) -> Decision:
     """Authorize, or refuse, one proposed action. Pure and side-effect free."""
-    request = decision_request(proposal)
-
+    request = decision_request(proposal, signals)
     t0 = time.perf_counter_ns()
     matched = None
     evaluated: list[str] = []
     for rule in bundle.rules:
         evaluated.append(rule.id)
-        if rule.matches(request):
+        if rule.matches(_heard_by(rule, request, readings)):
             matched = rule
             break
-    effect = matched.effect if matched else bundle.default_effect
+    disposition = matched.resolved_disposition if matched else default_disposition(bundle.default_effect)
+    effect = effect_for(disposition)
     decide_us = (time.perf_counter_ns() - t0) / 1_000.0
-
     reason = (
         matched.description
         if matched
@@ -173,4 +313,7 @@ def evaluate(proposal: dict[str, Any], bundle: PolicyBundle) -> Decision:
         request=request,
         decide_us=decide_us,
         evaluated=evaluated,
+        disposition=disposition,
+        escalate_to=matched.escalate_to if matched else None,
+        evidence=matched.evidence if matched else (),
     )

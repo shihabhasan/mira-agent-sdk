@@ -261,13 +261,19 @@ class Mira:
 
     # ------------------------------------------------------------ decide
 
-    def decide(self, proposal: dict[str, Any]) -> Decision:
-        """Evaluate without recording. Used where there is no open run."""
+    def decide(self, proposal: dict[str, Any], *,
+               signals: dict[str, Any] | None = None) -> Decision:
+        """Evaluate without recording. Used where there is no open run.
+
+        `signals` are verified examiner readings (`{"prompt_injection": 0.93}`)
+        for the payload the proposal carries; a v2 rule with conditions is
+        judged on them. Never pass values the agent produced about itself.
+        """
         with self._lock:
             bundle = self.bundle
         if bundle is None:
             return _refuse_no_policy(proposal)
-        return evaluate(proposal, bundle)
+        return evaluate(proposal, bundle, signals=signals)
 
     # ------------------------------------------------------------ shutdown
 
