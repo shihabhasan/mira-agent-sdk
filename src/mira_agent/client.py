@@ -75,6 +75,50 @@ class MiraConfigError(RuntimeError):
     """The client cannot operate safely — refuse rather than guess."""
 
 
+class CannotEnforce(Interdicted):
+    """The rulebook ordered a change to the call that this decorator cannot make.
+
+    A subclass of Interdicted on purpose: the action does not happen. A
+    boundary that cannot carry out the intervention it was told to make has
+    not been given a choice between enforcing and releasing — releasing is the
+    failure, not the fallback.
+    """
+
+
+# Which proposal field each decorator keyword is responsible for. A reroute or
+# a redaction changes a proposal field, and the call can only be corrected if
+# something here maps it back to the argument the tool actually reads.
+def _enforce(d: Decision, kwargs: dict, *, target: str, resource: str | None) -> dict:
+    """Rewrite the call so it matches what the rulebook released.
+
+    Returns the kwargs to call with. Raises CannotEnforce when the decision
+    changed a field this decorator has no argument for — the alternative is
+    running the original call while the sealed record says an intervention
+    happened, which is worse than refusing.
+    """
+    if not (d.rerouted or d.modified):
+        return kwargs
+    back = {"target_instance": target}
+    if resource:
+        back["artifact"] = resource
+    out = dict(kwargs)
+    changed: dict[str, object] = {}
+    if d.rerouted:
+        changed["target_instance"] = d.reroute_to
+    if d.modified and d.released is not None:
+        for field, value in d.released.items():
+            if field in ("action", "tool", "artifact_type"):
+                continue        # decorator constants, not arguments
+            if kwargs.get(back.get(field, field)) != value:
+                changed[field] = value
+    unmappable = [f for f in changed if f not in back]
+    if unmappable:
+        raise CannotEnforce(d)
+    for field, value in changed.items():
+        out[back[field]] = value
+    return out
+
+
 @dataclass
 class _Step:
     seq: int
@@ -253,6 +297,13 @@ class Mira:
                     d = run.authorize(**proposal)
                 if not d.allowed:
                     raise Interdicted(d)
+                # A disposition that is not a plain release changes the call,
+                # and this is the only place that can make that true. Reading
+                # `allowed` and calling `fn(**kwargs)` meant a reroute sent the
+                # action where the agent aimed it rather than where the
+                # rulebook sent it — authority widening at the boundary, by the
+                # component whose whole job is to stop that.
+                kwargs = _enforce(d, kwargs, target=target, resource=resource)
                 return fn(*args, **kwargs)
 
             return wrapper
@@ -415,17 +466,38 @@ class Run:
         """
         decision = self.mira.decide(proposal)
         self.decisions.append(decision)
+        # The six fields below are what every existing reader expects. The v2
+        # ones are added only when they say something, so a plain release seals
+        # exactly the bytes it always did — but a reroute or a redaction is an
+        # intervention, and sealing `decision: allow` under the rule that
+        # ordered it, with nothing else, made the permanent record assert a
+        # clean permission. The full predicate was going only into `content`,
+        # which is the hot tier retention deletes.
+        authorization = {
+            "decision": decision.effect,
+            "ruleId": decision.rule_id,
+            "policyBundleId": decision.bundle_id,
+            "policyBundleVersion": decision.bundle_version,
+            "policyBundleSha256": decision.bundle_digest,
+            "decideUs": round(decision.decide_us, 1),
+        }
+        if decision.disposition != ("release" if decision.allowed else "interdict"):
+            authorization["disposition"] = decision.disposition
+        if decision.escalate_to:
+            authorization["escalateTo"] = decision.escalate_to
+        if decision.evidence:
+            authorization["evidence"] = list(decision.evidence)
+        if decision.rerouted:
+            authorization["rerouteTo"] = decision.reroute_to
+            authorization["askedFor"] = _safe(decision.asked_for)
+        if decision.modified:
+            authorization["modifications"] = list(decision.modifications)
+            authorization["released"] = _safe(decision.released)
         self.record(
             RecordType.DECISION,
             node="policy_gate",
-            predicate={"authorization": {
-                "decision": decision.effect,
-                "ruleId": decision.rule_id,
-                "policyBundleId": decision.bundle_id,
-                "policyBundleVersion": decision.bundle_version,
-                "policyBundleSha256": decision.bundle_digest,
-                "decideUs": round(decision.decide_us, 1),
-            }, "proposedAction": _safe(proposal)},
+            predicate={"authorization": authorization,
+                       "proposedAction": _safe(proposal)},
             subject=[{"name": "action",
                       "digest": {"sha256": content_hash(proposal).removeprefix("sha256:")}}],
             content={"proposal": _safe(proposal), "decision": decision.to_predicate()},
