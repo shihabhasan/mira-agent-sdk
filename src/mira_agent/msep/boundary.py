@@ -73,6 +73,12 @@ class PolicyOutcome:
     redactions: tuple[str, ...] = ()
     # What REDACT actually let through, where that differs from the request.
     released_action: str | None = None
+    # Release the action somewhere other than where it was aimed. Not a
+    # seventh disposition: the question a disposition answers is whether the
+    # action runs now, and a reroute does not change that answer — only the
+    # destination. It is a modifier on a releasing outcome, and the boundary
+    # refuses it on any other, exactly as the rulebook does.
+    reroute_to: str | None = None
 
 
 @dataclass
@@ -92,6 +98,13 @@ class HopResult:
     # True when the onward hop could not consume MSEP natively and was routed
     # through a governed fallback enforcement point instead.
     downgraded: bool = False
+    # Where the action went, when that is not where it was aimed.
+    reroute_to: str | None = None
+    requested_target: str | None = None
+
+    @property
+    def rerouted(self) -> bool:
+        return self.reroute_to is not None
 
     @property
     def executed(self) -> bool:
@@ -182,6 +195,38 @@ class ExecutionBoundary:
         self.heard_from_control_plane(now_ms, "revocation")
         return card
 
+    # ------------------------------------------------------------ relay
+    def relay(self, limit: int = 8) -> list[Receipt]:
+        """Outstanding evidence to hand to the next hop, bounded.
+
+        A boundary can be able to reach its peer and not the ledger — a
+        one-way partition, a blocked egress rule, an evidence plane having a
+        bad afternoon. Its receipts are durably queued either way, but they
+        are queued *here*, and the longer that lasts the more of the causal
+        graph the ledger is missing without knowing it. The next hop may have
+        connectivity this one lacks, so it can carry them.
+
+        Bounded deliberately, and beside the envelope rather than inside it.
+        Receipts travelling in the signed execution state would let the hot
+        path grow with the length of the outage, which is the failure mode the
+        paper names: "excess evidence remains queued rather than allowing the
+        execution envelope to grow without bound."
+        """
+        return self.queue.relay_batch(limit)
+
+    def absorb(self, receipts: list[Receipt]) -> int:
+        """Take on a neighbour's outstanding evidence as if it were our own.
+
+        The receipts are already authenticated — each names the boundary that
+        signed it and the commitments it covers — so carrying one says nothing
+        about whether this boundary agrees with it. Dropping them on the floor
+        would be the one outcome worse than a late receipt: a gap the ledger
+        can see but never close.
+        """
+        for r in receipts:
+            self.queue.put(r)
+        return len(receipts)
+
     # -------------------------------------------------------------- hop
     def handle(
         self,
@@ -195,10 +240,23 @@ class ExecutionBoundary:
         drift_score: float = 0.0,
         execute: Callable[[], str] | None = None,
         destination_instrumented: bool = True,
+        requested_target: str | None = None,
         trace: TraceContext | None = None,
         now_ms: int | None = None,
     ) -> HopResult:
-        """Run one governed hop."""
+        """Run one governed hop.
+
+        `requested_target` is for the reroute the *originating* boundary
+        already made — the paper's Appendix B step 2, where the sending
+        boundary applies the disposition and mints the successor for a
+        destination that may differ from the one requested. By the time the
+        state reaches here it names the authorised target, which is the only
+        one this boundary's authority covers; what it cannot reconstruct is
+        the target that was asked for, so the caller passes it and the receipt
+        records both. A boundary that redirects locally instead returns
+        `reroute_to` from its policy hook, and both paths land in the same two
+        receipt fields.
+        """
         t0 = time.perf_counter_ns()
         now = now_ms if now_ms is not None else int(time.time() * 1000)
 
@@ -225,6 +283,7 @@ class ExecutionBoundary:
                 verdict = replace(verdict, ok=False, reasons=[Reject.STALE_STATE],
                                   detail=fresh.reason)
 
+        reroute_to: str | None = None
         if verdict.ok and self.decide is not None:
             outcome = self.decide(inbound, state)
             disposition = outcome.disposition
@@ -232,6 +291,20 @@ class ExecutionBoundary:
             redacted_action = outcome.released_action
             if outcome.reason:
                 verdict = replace(verdict, detail=outcome.reason)
+            if outcome.reroute_to:
+                before = disposition
+                disposition, reroute_to = self._reroute(
+                    inbound, state, outcome.reroute_to, disposition)
+                # Only when the reroute itself is what stopped it — a policy
+                # that returned Interdict and a reroute together is refused on
+                # its own reasons, not given this one.
+                if disposition is not before and disposition is Disposition.INTERDICT:
+                    verdict = replace(verdict, ok=False, reasons=[Reject.NOT_PERMITTED],
+                                      detail=(
+                        f"policy redirected this to {outcome.reroute_to!r}, but the "
+                        f"inbound authority does not permit {state.action} there; a "
+                        "reroute may send work where the rules already allow it and "
+                        "nowhere else"))
 
         # Recover & resend restores a prior state and re-runs. For a step whose
         # side effect already left the boundary, a re-run is a second copy of
@@ -260,6 +333,17 @@ class ExecutionBoundary:
                     disposition = Disposition.RECOVER
                     break
 
+        # Everything after the decision acts on the target that was actually
+        # authorised. Leaving the requested one in place here is how a
+        # redirected deployment ends up recorded against production.
+        released_state = replace(state, target=reroute_to) if reroute_to else state
+        # Either this boundary redirected it, or the one before did and told
+        # us what was originally asked for. A redirection nobody can see in
+        # the evidence is a governance intervention that left no trace.
+        asked_for = (state.target if reroute_to else requested_target) or None
+        if asked_for == released_state.target:
+            asked_for = None
+
         released: str | None = None
         response_digest: str | None = None
         if disposition.executes:
@@ -274,7 +358,7 @@ class ExecutionBoundary:
                 else:
                     released = result
             else:
-                released = redacted_action or state.action
+                released = redacted_action or released_state.action
 
         # An onward destination that cannot consume MSEP is not a reason to
         # release ungoverned. Route it through the configured fallback
@@ -297,7 +381,7 @@ class ExecutionBoundary:
         successor_state = None
         if disposition.executes and onward_to:
             successor, successor_state = self._rematerialise(
-                inbound=inbound, state=state, destination=onward_to,
+                inbound=inbound, state=released_state, destination=onward_to,
                 permissions=next_permissions, action=next_action,
                 side_effects=next_side_effects, now=now,
             )
@@ -314,6 +398,8 @@ class ExecutionBoundary:
             fallback_via=self.fallback if downgraded else None,
             trace=trace, response_digest=response_digest,
             signer_key_id=_kid(self.key), now_ms=now,
+            requested_target=asked_for,
+            released_target=released_state.target if asked_for else None,
         )
         # Queued, not sent. Sealing sits outside the decision so the ledger is
         # never in the path of an action.
@@ -323,8 +409,46 @@ class ExecutionBoundary:
             disposition=disposition, verdict=verdict, successor=successor,
             receipt=receipt, successor_state=successor_state, red_card=red_card,
             released_action=released, decide_us=decide_us, redactions=redactions,
-            downgraded=downgraded,
+            downgraded=downgraded, reroute_to=reroute_to,
+            requested_target=asked_for,
         )
+
+    # --------------------------------------------------------- reroute
+    def _reroute(self, inbound: Envelope, state: ExecutionState, to: str,
+                 disposition: Disposition) -> tuple[Disposition, str | None]:
+        """Decide whether a redirected action may actually be released there.
+
+        What moves is the resource the action acts on — production to
+        development, the live service to a sandbox — not the node the
+        successor is scoped to. Those are separate fields for a reason: policy
+        is written about resources, and re-pointing a permission check at a
+        node name would quietly stop every such rule from matching. The
+        successor is still minted for the caller's next destination; what
+        changes is the target sealed inside it.
+
+        Two failure-closed conditions, the same two the rulebook applies.
+
+        A reroute only modifies an outcome that was going to run. Attaching
+        one to a Gate, Elevate, Interdict or Recover would be asking the
+        boundary to release something it had just decided not to release, so
+        the modifier is dropped and the hold or refusal stands — the referee
+        the rule named keeps the decision.
+
+        And the redirected action is checked against the authority the actor
+        actually carries. A reroute is permitted to send work somewhere the
+        permissions already reach; it is not a way to reach a destination the
+        envelope was never given. Without this check, a policy hook could
+        widen authority simply by naming a target, which is the one thing the
+        trusted boundary exists to prevent.
+        """
+        if not disposition.executes or to == state.target:
+            # Nothing to redirect: the action is not running, or it is already
+            # going where policy wants it. Recording a reroute here would put
+            # an intervention in the evidence that never happened.
+            return disposition, None
+        if not inbound.permissions.permits(state.action, to, state.artifact):
+            return Disposition.INTERDICT, None
+        return disposition, to
 
     # --------------------------------------------------- re-materialisation
     def _rematerialise(
@@ -357,6 +481,21 @@ class ExecutionBoundary:
         local = self.adverse_for(inbound.identity)
         if local is not None:
             adverse = local.to_wire()
+
+        # A restriction that only held at the boundary that learned of it
+        # would last exactly one hop: the successor would hand the next
+        # boundary the full capability vector again and the card would have to
+        # be re-checked from scratch, which is the "trust resets to neutral
+        # after every interaction" the paper argues against. So the withdrawn
+        # capabilities come out of the successor's authority as well, and
+        # narrowing is what the protocol already guarantees can never be
+        # undone downstream.
+        if adverse is not None:
+            card = AdverseTrustAssertion.from_wire(adverse)
+            kept = tuple(c for c in onward.caps
+                         if not card.restricts(c.action, c.target, self.consequence))
+            if len(kept) != len(onward.caps):
+                onward = Permissions(kept)
 
         # An envelope seals the action its hop will attempt, so the successor
         # has to name the *next* step rather than repeat the one just executed.

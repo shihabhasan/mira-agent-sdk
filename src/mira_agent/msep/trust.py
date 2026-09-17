@@ -74,11 +74,18 @@ class AdverseTrustAssertion:
     issued_ms: int
     policy_digest: str = ""
     resolution: str | None = None
+    # What the card takes away, for a RESTRICTED one: the actions the subject
+    # may no longer take, or "action:target" pairs where only some targets are
+    # withdrawn. Empty means the default — everything the boundary classifies
+    # as high-consequence. Appendix D.3 lists scope among the things an
+    # adverse assertion identifies, and without it "narrow authority" has no
+    # way to say how far.
+    scope: tuple[str, ...] = ()
     key_id: str = ""
     signature: str = ""
 
     def signing_body(self) -> dict:
-        return {
+        body = {
             "subject": self.subject,
             "severity": str(self.severity),
             "reason": self.reason,
@@ -90,6 +97,13 @@ class AdverseTrustAssertion:
             "resolution": self.resolution,
             "keyId": self.key_id,
         }
+        # Present only when the card actually scopes something, so every card
+        # signed before this field existed still verifies byte for byte. A
+        # scope that *is* set is covered by the signature like everything else,
+        # so it cannot be stripped in transit to widen the card back out.
+        if self.scope:
+            body["scope"] = sorted(self.scope)
+        return body
 
     def signing_bytes(self) -> bytes:
         return _pae(_ADVERSE_CONTEXT, _canon(self.signing_body()))
@@ -116,12 +130,31 @@ class AdverseTrustAssertion:
         d["signature"] = self.signature
         return d
 
+    def restricts(self, action: str, target: str,
+                  consequence=None) -> bool:
+        """Whether this card withdraws the actor's authority over this step.
+
+        A TERMINAL card stops everything and is handled before this is
+        reached. A RESTRICTED one narrows: with an explicit scope it withdraws
+        exactly what the scope names, and with none it falls back to whatever
+        the boundary classifies as high-consequence — which is the behaviour
+        the severity has always documented and never performed.
+        """
+        if self.severity is not Severity.RESTRICTED:
+            return False
+        if self.scope:
+            return action in self.scope or f"{action}:{target}" in self.scope
+        if consequence is None:
+            from mira_agent.msep.freshness import consequence_of as consequence
+        return str(consequence(action, target)) == "high"
+
     @classmethod
     def from_wire(cls, d: dict) -> "AdverseTrustAssertion":
         return cls(
             subject=d["subject"], severity=Severity(d["severity"]),
             reason=d["reason"], trigger_commitment=d["triggerCommitment"],
             issued_by=d["issuedBy"], epoch=int(d["epoch"]),
+            scope=tuple(d.get("scope") or ()),
             issued_ms=int(d["issuedMs"]), policy_digest=d.get("policyDigest", ""),
             resolution=d.get("resolution"), key_id=d.get("keyId", ""),
             signature=d.get("signature", ""),
@@ -131,13 +164,24 @@ class AdverseTrustAssertion:
 def issue_red_card(
     *, subject: str, reason: str, trigger_commitment: str, issued_by: str,
     epoch: int, key: SigningKey, severity: Severity = Severity.TERMINAL,
-    policy_digest: str = "", now_ms: int | None = None,
+    policy_digest: str = "", scope: tuple[str, ...] = (),
+    now_ms: int | None = None,
 ) -> AdverseTrustAssertion:
     """Mint an adverse assertion. Only a boundary holding a signing key can.
 
     That the actor cannot issue one about itself is the point: an agent must
     not be able to clear, downgrade or forge its own standing.
+
+    `scope` only means anything on a RESTRICTED card, where it names the
+    actions — or "action:target" pairs — the subject may no longer take. Left
+    empty on a restricted card, everything the boundary classifies as
+    high-consequence is withdrawn.
     """
+    if scope and severity is not Severity.RESTRICTED:
+        raise ValueError(
+            f"a {severity} card cannot carry a scope: TERMINAL stops everything and "
+            "NOTED stops nothing, so a scope on either would read as a narrowing "
+            "that is not happening")
     if reason not in CRITICAL_TRUST_EVENTS:
         raise ValueError(
             f"{reason!r} is not a declared critical trust event. Adding one is a "
@@ -148,6 +192,7 @@ def issue_red_card(
         subject=subject, severity=severity, reason=reason,
         trigger_commitment=trigger_commitment, issued_by=issued_by,
         epoch=epoch, issued_ms=t, policy_digest=policy_digest,
+        scope=tuple(scope),
     ).sign(key)
 
 
@@ -162,8 +207,11 @@ def reinstate(
     """
     t = now_ms if now_ms is not None else int(time.time() * 1000)
     from dataclasses import replace
+    # The scope goes with the restriction it described. Leaving it on a NOTED
+    # card would be a narrowing nothing enforces, sitting in the evidence
+    # looking like one that does.
     return replace(
-        card, severity=Severity.NOTED,
+        card, severity=Severity.NOTED, scope=(),
         resolution=f"reinstated_by:{authorised_by}", issued_ms=t,
         key_id="", signature="",
     ).sign(key)

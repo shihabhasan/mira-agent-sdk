@@ -160,3 +160,62 @@ def test_a_reroute_onto_a_hold_stays_a_hold_in_the_local_gate():
     assert d.disposition == "elevate" and d.escalate_to == "release-manager"
     assert d.reroute_to == "dev" and d.request["target_instance"] == "dev"
     assert not d.allowed
+
+
+# ------------------------------------------------- redact / modify / constrain
+DEPLOY_BIG = {"action": "deploy", "target_instance": "dev", "artifact_type": "update_set",
+              "records_affected": 412_887, "requested_by": "sn-release-agent"}
+
+CAP_RULE = {
+    "id": "M-1", "disposition": "redact",
+    "description": "Non-production changes proceed with the batch inside the ceiling.",
+    "match": {"action": "deploy", "target_instance": "dev"},
+    "modify": [{"field": "records_affected", "treatment": "cap", "value": 100_000},
+               {"field": "requested_by", "treatment": "hash"}],
+}
+
+
+def _modify_bundle():
+    from mira_agent.policy import PolicyBundle
+    return PolicyBundle.from_dict({"bundle_id": "t/modify", "version": "1",
+                                   "default_effect": "deny", "rules": [CAP_RULE]})
+
+
+def test_the_sdk_applies_a_cap_the_same_way_the_server_does():
+    """The two gates have to reach the same answer or an agent's local
+    decision and the boundary's disagree, which is the failure the SDK exists
+    to avoid."""
+    from mira_agent.policy import evaluate
+    d = evaluate(DEPLOY_BIG, _modify_bundle())
+    assert d.allowed and d.disposition == "redact" and d.modified
+    assert d.released["records_affected"] == 100_000
+    assert d.released["requested_by"].startswith("sha256:")
+    assert d.modifications == ("records_affected capped at 100000", "requested_by hashed")
+
+
+def test_a_redaction_that_changed_nothing_is_reported_as_a_plain_release():
+    from mira_agent.policy import PolicyBundle, evaluate
+    b = PolicyBundle.from_dict({
+        "bundle_id": "t", "version": "1", "default_effect": "deny",
+        "rules": [{**CAP_RULE, "modify": [{"field": "records_affected",
+                                           "treatment": "cap", "value": 100_000}]}]})
+    d = evaluate({**DEPLOY_BIG, "records_affected": 12}, b)
+    assert d.allowed and d.disposition == "release" and not d.modified
+    assert d.released is None
+
+
+def test_a_modification_does_not_move_a_bundles_digest_unless_it_is_there():
+    from mira_agent.policy import PolicyBundle
+    plain = PolicyBundle.from_dict({
+        "bundle_id": "t", "version": "1", "default_effect": "deny",
+        "rules": [{"id": "A", "disposition": "release", "description": "x",
+                   "match": {"action": "inspect"}}]})
+    assert "modify" not in plain.rules[0].to_jcs()
+    assert _modify_bundle().rules[0].to_jcs()["modify"][0]["treatment"] == "cap"
+
+
+def test_the_sealed_predicate_carries_what_changed():
+    from mira_agent.policy import evaluate
+    p = evaluate(DEPLOY_BIG, _modify_bundle()).to_predicate()
+    assert p["released"]["records_affected"] == 100_000
+    assert len(p["modifications"]) == 2

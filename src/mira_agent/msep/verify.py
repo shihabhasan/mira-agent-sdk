@@ -56,6 +56,7 @@ class Reject(StrEnum):
     TTL_EXTENDED = "ttl_extended_beyond_predecessor"
     DEPTH_NOT_MONOTONIC = "depth_not_monotonic"
     ADVERSE_TERMINAL = "actor_under_terminal_adverse_trust"
+    ADVERSE_RESTRICTED = "action_withdrawn_by_adverse_trust"
     ATTESTATION_MISMATCH = "key_presented_outside_certified_context"
     FOREIGN_ROOT = "issued_under_foreign_trust_root"
     KEY_REVOKED = "signing_key_revoked"
@@ -237,20 +238,36 @@ def verify_inbound(
     # the two wins. Otherwise an actor escapes a terminal card by presenting a
     # stale mild one, which is the same evasion as omitting it with extra
     # steps.
+    cards: list[tuple[str, AdverseTrustAssertion]] = []
     if env.adverse:
         card = AdverseTrustAssertion.from_wire(env.adverse)
         apub = keys.get(card.key_id)
         if apub is None or not card.signature_valid(apub):
             bad.append(Reject.BAD_SIGNATURE)
             detail = detail or "adverse trust assertion does not verify"
-        elif card.severity is Severity.TERMINAL:
-            bad.append(Reject.ADVERSE_TERMINAL)
-            detail = detail or f"actor carries a terminal Red Card: {card.reason}"
-    if adverse_lookup is not None and Reject.ADVERSE_TERMINAL not in bad:
+        else:
+            cards.append(("actor carries", card))
+    if adverse_lookup is not None:
         local = adverse_lookup(env.identity)
-        if local is not None and local.severity is Severity.TERMINAL:
-            bad.append(Reject.ADVERSE_TERMINAL)
-            detail = detail or f"boundary holds a terminal Red Card: {local.reason}"
+        if local is not None:
+            cards.append(("boundary holds", local))
+    for where, card in cards:
+        if card.severity is Severity.TERMINAL:
+            if Reject.ADVERSE_TERMINAL not in bad:
+                bad.append(Reject.ADVERSE_TERMINAL)
+            detail = detail or f"{where} a terminal Red Card: {card.reason}"
+        elif state is not None and card.restricts(state.action, state.target):
+            # The severity has always said "authority narrows: high-consequence
+            # capabilities are withheld". Until now nothing read it, so a
+            # restricted actor was indistinguishable from an unblemished one
+            # and the middle severity was decoration. This is where it bites.
+            if Reject.ADVERSE_RESTRICTED not in bad:
+                bad.append(Reject.ADVERSE_RESTRICTED)
+            detail = detail or (
+                f"{where} a Red Card restricting this actor: {card.reason}; "
+                f"{state.action} -> {state.target} is withdrawn"
+                + (f" (scope: {', '.join(sorted(card.scope))})" if card.scope
+                   else " as a high-consequence action"))
 
     # -- vector 2: deterministic permission bounds ------------------------
     if state is not None and not permitted_checked and not env.permissions.permits(

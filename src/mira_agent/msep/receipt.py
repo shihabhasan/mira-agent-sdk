@@ -69,9 +69,16 @@ class Receipt:
     # Which boundary key produced this transition, so a compromised key's
     # blast radius can be enumerated from the evidence.
     signer_key_id: str | None = None
+    # Where the action was aimed, and where it was actually released, when
+    # policy redirected it. Both, because a receipt that recorded only the
+    # destination that ran would describe a deployment nobody asked for, and
+    # one that recorded only the destination asked for would describe a
+    # deployment that never happened. Set only when they differ.
+    requested_target: str | None = None
+    released_target: str | None = None
 
     def to_jcs(self) -> dict:
-        return {
+        out = {
             "inboundCommitment": self.inbound_commitment,
             "successorCommitment": self.successor_commitment,
             "identity": self.identity,
@@ -93,6 +100,14 @@ class Receipt:
             "responseDigest": self.response_digest,
             "signerKeyId": self.signer_key_id,
         }
+        # Emitted only when policy actually redirected the action. Present on
+        # every receipt, these two would move the canonical form of every
+        # receipt ever sealed — and say "no intervention" in the same breath
+        # as the fields that exist to record one.
+        if self.released_target is not None:
+            out["requestedTarget"] = self.requested_target
+            out["releasedTarget"] = self.released_target
+        return out
 
 
 class ReceiptQueue:
@@ -153,6 +168,7 @@ def compile_receipt(
     downgraded: bool = False, fallback_via: str | None = None,
     trace=None, response_digest: str | None = None,
     signer_key_id: str | None = None, now_ms: int | None = None,
+    requested_target: str | None = None, released_target: str | None = None,
 ) -> Receipt:
     return Receipt(
         inbound_commitment=inbound.commitment() if inbound else None,
@@ -167,5 +183,6 @@ def compile_receipt(
         fallback_via=fallback_via,
         trace=trace.to_jcs() if trace is not None else None,
         response_digest=response_digest, signer_key_id=signer_key_id,
+        requested_target=requested_target, released_target=released_target,
         at_ms=now_ms if now_ms is not None else int(time.time() * 1000),
     )

@@ -94,6 +94,49 @@ class Condition:
         return {"field": self.field, "op": self.op, "value": self.value}
 
 
+# What a `redact` rule may do to a field before the action proceeds. Each is a
+# fixed treatment of a named field, so the same request and the same rule
+# always produce the same released request — which is what lets the receipt
+# name what changed and an auditor reproduce it. `cap` is the constraint half:
+# a requested parameter over its bound is brought back to the bound rather
+# than the whole action failing.
+TREATMENTS = ("remove", "mask", "hash", "cap")
+MASK = "[REDACTED]"
+
+
+@dataclass(frozen=True)
+class Modification:
+    field: str
+    treatment: str = "mask"
+    value: Any = None
+
+    def apply(self, request: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+        if self.field not in request:
+            return request, None
+        actual = request[self.field]
+        if self.treatment == "remove":
+            return {k: v for k, v in request.items() if k != self.field}, \
+                f"{self.field} removed"
+        if self.treatment == "mask":
+            return {**request, self.field: MASK}, f"{self.field} masked"
+        if self.treatment == "hash":
+            return ({**request, self.field: "sha256:" + sha256_hex(canonical(actual))},
+                    f"{self.field} hashed")
+        if self.treatment == "cap":
+            a, bound = _num(actual), _num(self.value)
+            if a is None or bound is None or a <= bound:
+                return request, None
+            capped = int(bound) if float(bound).is_integer() else bound
+            return {**request, self.field: capped}, f"{self.field} capped at {capped}"
+        return request, None
+
+    def to_jcs(self) -> dict:
+        out: dict[str, Any] = {"field": self.field, "treatment": self.treatment}
+        if self.value is not None:
+            out["value"] = self.value
+        return out
+
+
 @dataclass(frozen=True)
 class Rule:
     id: str
@@ -109,6 +152,10 @@ class Rule:
     # ignored this field would read a reroute as a plain permission for the
     # target the agent asked for, which is the opposite of what it says.
     reroute_to: str | None = None
+    # Redact / modify / constrain. A rule that asks for `redact` and names no
+    # field releases the action unchanged while claiming an intervention, so
+    # the server refuses to publish one; this reads whatever was published.
+    modify: tuple[Modification, ...] = ()
     evidence: tuple[str, ...] = ()
     examiners: tuple[str, ...] = ()
     provenance: dict[str, Any] = field(default_factory=dict)
@@ -116,6 +163,14 @@ class Rule:
     @property
     def resolved_disposition(self) -> str:
         return self.disposition or default_disposition(self.effect)
+
+    def apply_modifications(self, request: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+        out, applied = request, []
+        for m in self.modify:
+            out, changed = m.apply(out)
+            if changed:
+                applied.append(changed)
+        return out, applied
 
     def matches(self, request: dict[str, Any]) -> bool:
         for key, permitted in self.match.items():
@@ -145,6 +200,9 @@ class Rule:
             out["escalateTo"] = self.escalate_to
         if self.reroute_to:
             out["rerouteTo"] = self.reroute_to
+        if self.modify:
+            out["modify"] = [m.to_jcs() for m in sorted(
+                self.modify, key=lambda m: (m.field, m.treatment))]
         if self.evidence:
             out["evidence"] = sorted(self.evidence)
         if self.examiners:
@@ -167,6 +225,9 @@ class Rule:
             disposition=disposition,
             escalate_to=(r.get("escalate_to") or None),
             reroute_to=(r.get("reroute_to") or r.get("rerouteTo") or None),
+            modify=tuple(Modification(str(m["field"]), str(m.get("treatment", "mask")),
+                                      m.get("value"))
+                         for m in (r.get("modify") or ())),
             evidence=tuple(r.get("evidence") or ()),
             examiners=tuple(r.get("examiners") or ()),
             provenance=dict(r.get("provenance") or {}),
@@ -234,6 +295,14 @@ class Decision:
     reroute_to: str | None = None
     asked_for: dict[str, Any] | None = None
     evidence: tuple[str, ...] = ()
+    # Redact / modify / constrain: what changed on the way through, and the
+    # proposal as it will actually be executed.
+    modifications: tuple[str, ...] = ()
+    released: dict[str, Any] | None = None
+
+    @property
+    def modified(self) -> bool:
+        return bool(self.modifications)
 
     @property
     def held(self) -> bool:
@@ -261,6 +330,9 @@ class Decision:
         if self.reroute_to:
             out["rerouteTo"] = self.reroute_to
             out["askedFor"] = self.asked_for
+        if self.modifications:
+            out["modifications"] = list(self.modifications)
+            out["released"] = self.released
         return out
 
     @property
@@ -376,6 +448,24 @@ def evaluate(proposal: dict[str, Any], bundle: PolicyBundle, *,
             evaluated=evaluated + onward.evaluated, disposition=onward.disposition,
             evidence=matched.evidence, reroute_to=matched.reroute_to, asked_for=asked_for)
 
+    # Redact / modify / constrain, applied after the decision and over the
+    # whole proposal rather than the decision request — the fields worth
+    # removing or bringing inside a bound are exactly the ones the gate
+    # deliberately does not judge on. A redaction that changed nothing is
+    # reported as a plain release, because a cap not biting is its ordinary
+    # case and an intervention that did not happen does not belong in evidence.
+    modifications: tuple[str, ...] = ()
+    released: dict[str, Any] | None = None
+    if matched is not None and matched.modify and disposition in RELEASING:
+        after, changed = matched.apply_modifications(proposal)
+        if changed:
+            modifications, released = tuple(changed), after
+            reason = f"{reason} Released with {'; '.join(changed)}."
+        elif disposition == "redact":
+            disposition = "release"
+            reason = f"{reason} Nothing exceeded the bounds, so it was released unchanged."
+        decide_us = (time.perf_counter_ns() - t0) / 1_000.0
+
     return Decision(
         allowed=(effect == "allow"),
         effect=effect,
@@ -390,4 +480,6 @@ def evaluate(proposal: dict[str, Any], bundle: PolicyBundle, *,
         disposition=disposition,
         escalate_to=matched.escalate_to if matched else None,
         evidence=matched.evidence if matched else (),
+        modifications=modifications,
+        released=released,
     )
