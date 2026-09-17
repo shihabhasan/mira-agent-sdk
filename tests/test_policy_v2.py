@@ -87,3 +87,58 @@ def test_v1_predicate_shape_is_intact():
         assert key in p
     assert p["decision"] == "deny" and p["disposition"] == "interdict"
     assert json.dumps(p)  # JSON-able
+
+
+# --------------------------------------------------------------- reroute
+# A reroute releases the action somewhere other than it was aimed. The agent's
+# own gate must honour it: an SDK that ignored the field would read a reroute
+# as a plain permission for the target the agent asked for, and release exactly
+# the thing the rulebook was redirecting.
+REROUTE = {
+    "id": "RR-1", "disposition": "release", "reroute_to": "dev",
+    "description": "A Production deployment is redirected to Dev rather than refused.",
+    "match": {"action": "deploy", "target_instance": "prod"},
+}
+PROD = {"action": "deploy", "target_instance": "prod", "artifact_type": "update_set"}
+
+
+def _bundle(*rules, default="deny"):
+    return PolicyBundle.from_dict({"bundle_id": "t/reroute", "version": "1",
+                                   "default_effect": default,
+                                   "rules": [dict(r) for r in rules]})
+
+
+def test_the_local_gate_honours_a_reroute_and_names_both_targets():
+    b = _bundle(REROUTE, {"id": "OK", "disposition": "release",
+                          "description": "Dev is permitted.",
+                          "match": {"action": "deploy", "target_instance": "dev"}})
+    d = evaluate(PROD, b)
+    assert d.allowed and d.rerouted and d.reroute_to == "dev"
+    assert d.request["target_instance"] == "dev"
+    assert d.asked_for["target_instance"] == "prod"
+    p = d.to_predicate()
+    assert p["rerouteTo"] == "dev" and p["askedFor"]["target_instance"] == "prod"
+
+
+def test_the_local_gate_fails_closed_when_the_new_target_is_not_permitted():
+    d = evaluate(PROD, _bundle(REROUTE))          # nothing permits dev
+    assert not d.allowed and d.disposition == "interdict" and not d.rerouted
+    assert d.request["target_instance"] == "prod"
+
+
+def test_the_local_gate_follows_a_reroute_once_only():
+    b = _bundle(REROUTE,
+                {"id": "B", "disposition": "release", "reroute_to": "test",
+                 "description": "dev to test", "match": {"action": "deploy", "target_instance": "dev"}},
+                {"id": "C", "disposition": "release", "description": "test is permitted",
+                 "match": {"action": "deploy", "target_instance": "test"}})
+    d = evaluate(PROD, b)
+    assert not d.allowed and "followed once only" in d.reason
+
+
+def test_a_reroute_is_in_the_canonical_form_and_absent_when_unset():
+    b = _bundle(REROUTE)
+    assert b.rules[0].to_jcs()["rerouteTo"] == "dev"
+    plain = _bundle({"id": "A", "disposition": "release", "description": "x",
+                     "match": {"action": "inspect"}})
+    assert "rerouteTo" not in plain.rules[0].to_jcs()

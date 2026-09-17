@@ -103,6 +103,12 @@ class Rule:
     conditions: tuple[Condition, ...] = ()
     disposition: str | None = None
     escalate_to: str | None = None
+    # Release the action, but against a different target than the one asked
+    # for. A modifier on a releasing rule, not a disposition: the answer to
+    # "does this run now" is unchanged, only where it runs. An SDK that
+    # ignored this field would read a reroute as a plain permission for the
+    # target the agent asked for, which is the opposite of what it says.
+    reroute_to: str | None = None
     evidence: tuple[str, ...] = ()
     examiners: tuple[str, ...] = ()
     provenance: dict[str, Any] = field(default_factory=dict)
@@ -137,6 +143,8 @@ class Rule:
             out["disposition"] = self.disposition
         if self.escalate_to:
             out["escalateTo"] = self.escalate_to
+        if self.reroute_to:
+            out["rerouteTo"] = self.reroute_to
         if self.evidence:
             out["evidence"] = sorted(self.evidence)
         if self.examiners:
@@ -158,6 +166,7 @@ class Rule:
                              for c in (r.get("conditions") or [])),
             disposition=disposition,
             escalate_to=(r.get("escalate_to") or None),
+            reroute_to=(r.get("reroute_to") or r.get("rerouteTo") or None),
             evidence=tuple(r.get("evidence") or ()),
             examiners=tuple(r.get("examiners") or ()),
             provenance=dict(r.get("provenance") or {}),
@@ -222,6 +231,8 @@ class Decision:
     evaluated: list[str] = field(default_factory=list)
     disposition: str = "interdict"
     escalate_to: str | None = None
+    reroute_to: str | None = None
+    asked_for: dict[str, Any] | None = None
     evidence: tuple[str, ...] = ()
 
     @property
@@ -247,7 +258,14 @@ class Decision:
             out["escalateTo"] = self.escalate_to
         if self.evidence:
             out["evidence"] = list(self.evidence)
+        if self.reroute_to:
+            out["rerouteTo"] = self.reroute_to
+            out["askedFor"] = self.asked_for
         return out
+
+    @property
+    def rerouted(self) -> bool:
+        return self.reroute_to is not None
 
 
 def decision_request(proposal: dict[str, Any],
@@ -302,6 +320,39 @@ def evaluate(proposal: dict[str, Any], bundle: PolicyBundle, *,
             f"the basis of design is default-{bundle.default_effect}."
         )
     )
+    # A reroute releases the action somewhere other than where it was aimed.
+    # The redirected action is judged against the whole bundle as if it had
+    # been proposed that way, and released only if the rules permit it there;
+    # a reroute that lands on another reroute is refused rather than followed.
+    # Identical to the control plane's gate, and the conformance vectors hold
+    # both to the same bytes.
+    if matched is not None and matched.reroute_to and disposition in RELEASING:
+        asked_for = dict(request)
+        onward = evaluate({**proposal, "target_instance": matched.reroute_to}, bundle,
+                          signals=signals, readings=readings)
+        decide_us = (time.perf_counter_ns() - t0) / 1_000.0
+        if not onward.allowed or onward.rerouted:
+            detail = ("the redirected action is refused there too" if not onward.allowed
+                      else "the redirected action would be rerouted again, and a reroute "
+                           "is followed once only")
+            return Decision(
+                allowed=False, effect="deny", rule_id=matched.id,
+                reason=(f"{matched.description} The reroute to {matched.reroute_to!r} was "
+                        f"not taken: {detail} ({onward.rule_id}). Nothing is released."),
+                bundle_id=bundle.bundle_id, bundle_version=bundle.version,
+                bundle_digest=bundle.digest, request=asked_for, decide_us=decide_us,
+                evaluated=evaluated + onward.evaluated, disposition="interdict",
+                evidence=matched.evidence)
+        return Decision(
+            allowed=True, effect="allow", rule_id=matched.id,
+            reason=(f"{matched.description} Rerouted from "
+                    f"{asked_for.get('target_instance')!r} to {matched.reroute_to!r}, "
+                    f"where {onward.rule_id} permits it."),
+            bundle_id=bundle.bundle_id, bundle_version=bundle.version,
+            bundle_digest=bundle.digest, request=onward.request, decide_us=decide_us,
+            evaluated=evaluated + onward.evaluated, disposition=onward.disposition,
+            evidence=matched.evidence, reroute_to=matched.reroute_to, asked_for=asked_for)
+
     return Decision(
         allowed=(effect == "allow"),
         effect=effect,
