@@ -142,3 +142,21 @@ def test_a_reroute_is_in_the_canonical_form_and_absent_when_unset():
     plain = _bundle({"id": "A", "disposition": "release", "description": "x",
                      "match": {"action": "inspect"}})
     assert "rerouteTo" not in plain.rules[0].to_jcs()
+
+
+def test_a_reroute_onto_a_hold_stays_a_hold_in_the_local_gate():
+    """Held there is not refused there. The server carries the hold with its
+    referee; an SDK that collapsed it into a block would tell the agent the
+    action was refused when a named person still has to answer — and the two
+    gates must not disagree about that."""
+    b = _bundle(REROUTE,
+                {"id": "HOLD", "disposition": "elevate", "escalate_to": "release-manager",
+                 "description": "An injected change waits for the release manager.",
+                 "match": {"action": "deploy"},
+                 "conditions": [{"field": "signal.prompt_injection", "op": ">=", "value": 0.8}]},
+                {"id": "OK", "disposition": "release", "description": "Dev is permitted.",
+                 "match": {"action": "deploy", "target_instance": "dev"}})
+    d = evaluate(PROD, b, signals={"signal.prompt_injection": 0.95})
+    assert d.disposition == "elevate" and d.escalate_to == "release-manager"
+    assert d.reroute_to == "dev" and d.request["target_instance"] == "dev"
+    assert not d.allowed

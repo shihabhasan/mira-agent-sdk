@@ -331,14 +331,37 @@ def evaluate(proposal: dict[str, Any], bundle: PolicyBundle, *,
         onward = evaluate({**proposal, "target_instance": matched.reroute_to}, bundle,
                           signals=signals, readings=readings)
         decide_us = (time.perf_counter_ns() - t0) / 1_000.0
-        if not onward.allowed or onward.rerouted:
-            detail = ("the redirected action is refused there too" if not onward.allowed
-                      else "the redirected action would be rerouted again, and a reroute "
-                           "is followed once only")
+        if onward.rerouted:
             return Decision(
                 allowed=False, effect="deny", rule_id=matched.id,
                 reason=(f"{matched.description} The reroute to {matched.reroute_to!r} was "
-                        f"not taken: {detail} ({onward.rule_id}). Nothing is released."),
+                        f"not taken: the redirected action would be rerouted again, and a "
+                        f"reroute is followed once only ({onward.rule_id}). Nothing is "
+                        f"released."),
+                bundle_id=bundle.bundle_id, bundle_version=bundle.version,
+                bundle_digest=bundle.digest, request=asked_for, decide_us=decide_us,
+                evaluated=evaluated + onward.evaluated, disposition="interdict",
+                evidence=matched.evidence)
+        if onward.held:
+            # Held there, not refused there. Carry the hold: the referee the
+            # rules named still has to answer, and when they release it the
+            # action runs against the target it was redirected to.
+            return Decision(
+                allowed=False, effect="deny", rule_id=onward.rule_id,
+                reason=(f"{matched.description} Redirected to {matched.reroute_to!r}, "
+                        f"and held there: {onward.reason}"),
+                bundle_id=bundle.bundle_id, bundle_version=bundle.version,
+                bundle_digest=bundle.digest, request=onward.request, decide_us=decide_us,
+                evaluated=evaluated + onward.evaluated, disposition=onward.disposition,
+                escalate_to=onward.escalate_to,
+                evidence=tuple(dict.fromkeys(matched.evidence + onward.evidence)),
+                reroute_to=matched.reroute_to, asked_for=asked_for)
+        if not onward.allowed:
+            return Decision(
+                allowed=False, effect="deny", rule_id=matched.id,
+                reason=(f"{matched.description} The reroute to {matched.reroute_to!r} was "
+                        f"not taken: the redirected action is refused there too "
+                        f"({onward.rule_id}). Nothing is released."),
                 bundle_id=bundle.bundle_id, bundle_version=bundle.version,
                 bundle_digest=bundle.digest, request=asked_for, decide_us=decide_us,
                 evaluated=evaluated + onward.evaluated, disposition="interdict",
