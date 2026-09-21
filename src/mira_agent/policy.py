@@ -156,6 +156,10 @@ class Rule:
     # field releases the action unchanged while claiming an intervention, so
     # the server refuses to publish one; this reads whatever was published.
     modify: tuple[Modification, ...] = ()
+    # What this rule does when a reading it tests never arrived. None means
+    # skip, which is the fail-open case: the condition does not hold, the rule
+    # does not fire, and the request falls through to whatever is underneath.
+    on_unavailable: str | None = None
     evidence: tuple[str, ...] = ()
     examiners: tuple[str, ...] = ()
     provenance: dict[str, Any] = field(default_factory=dict)
@@ -171,6 +175,27 @@ class Rule:
             if changed:
                 applied.append(changed)
         return out, applied
+
+    @property
+    def signal_fields(self) -> tuple[str, ...]:
+        return tuple(c.field for c in self.conditions if c.field.startswith(SIGNAL_PREFIX))
+
+    def unheard(self, request: dict[str, Any]) -> tuple[str, ...]:
+        """The signals this rule tests that nobody supplied a reading for."""
+        return tuple(f for f in self.signal_fields if f not in request)
+
+    def matches_without_signals(self, request: dict[str, Any]) -> bool:
+        """Everything except the readings. Used to decide whether an unheard
+        rule is the one that should have applied — a rule about deployments
+        must not hold a database query because an examiner is down."""
+        for key, permitted in self.match.items():
+            if key not in request:
+                return False
+            allowed = permitted if isinstance(permitted, (list, tuple, set)) else [permitted]
+            if request[key] not in allowed:
+                return False
+        return all(c.holds(request) for c in self.conditions
+                   if not c.field.startswith(SIGNAL_PREFIX))
 
     def matches(self, request: dict[str, Any]) -> bool:
         for key, permitted in self.match.items():
@@ -203,6 +228,8 @@ class Rule:
         if self.modify:
             out["modify"] = [m.to_jcs() for m in sorted(
                 self.modify, key=lambda m: (m.field, m.treatment))]
+        if self.on_unavailable and self.on_unavailable != "skip":
+            out["onUnavailable"] = self.on_unavailable
         if self.evidence:
             out["evidence"] = sorted(self.evidence)
         if self.examiners:
@@ -228,6 +255,7 @@ class Rule:
             modify=tuple(Modification(str(m["field"]), str(m.get("treatment", "mask")),
                                       m.get("value"))
                          for m in (r.get("modify") or ())),
+            on_unavailable=(r.get("on_unavailable") or r.get("onUnavailable") or None),
             evidence=tuple(r.get("evidence") or ()),
             examiners=tuple(r.get("examiners") or ()),
             provenance=dict(r.get("provenance") or {}),
@@ -375,15 +403,39 @@ def evaluate(proposal: dict[str, Any], bundle: PolicyBundle, *,
     request = decision_request(proposal, signals)
     t0 = time.perf_counter_ns()
     matched = None
+    unheard: tuple[str, ...] = ()
     evaluated: list[str] = []
     for rule in bundle.rules:
         evaluated.append(rule.id)
-        if rule.matches(_heard_by(rule, request, readings)):
+        heard = _heard_by(rule, request, readings)
+        # The fail-open case, closed: a rule whose reading never arrived does
+        # not fire, so the request falls through to whatever is underneath —
+        # which for a deny above a broad allow means an examiner going quiet
+        # releases the very thing the rule exists to stop.
+        missing = rule.unheard(heard) if rule.on_unavailable not in (None, "skip") else ()
+        if missing and rule.matches_without_signals(heard):
+            matched, unheard = rule, missing
+            break
+        if rule.matches(heard):
             matched = rule
             break
-    disposition = matched.resolved_disposition if matched else default_disposition(bundle.default_effect)
+    if matched is not None and unheard:
+        disposition = matched.on_unavailable
+    else:
+        disposition = matched.resolved_disposition if matched else default_disposition(bundle.default_effect)
     effect = effect_for(disposition)
     decide_us = (time.perf_counter_ns() - t0) / 1_000.0
+    if matched is not None and unheard:
+        names = ", ".join(sorted(f.removeprefix(SIGNAL_PREFIX) for f in unheard))
+        reason = (f"{matched.description} No examiner supplied a reading for {names}, "
+                  f"and {matched.id} is written to {matched.on_unavailable} rather than "
+                  "release when it cannot be checked.")
+        return Decision(
+            allowed=effect == "allow", effect=effect, rule_id=matched.id, reason=reason,
+            bundle_id=bundle.bundle_id, bundle_version=bundle.version,
+            bundle_digest=bundle.digest, request=request, decide_us=decide_us,
+            evaluated=evaluated, disposition=disposition,
+            escalate_to=matched.escalate_to, evidence=matched.evidence)
     reason = (
         matched.description
         if matched
