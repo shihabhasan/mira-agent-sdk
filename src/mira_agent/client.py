@@ -37,6 +37,8 @@ import uuid
 from contextlib import contextmanager
 
 from ._version import __version__
+from .examiners import (Assertion, Roster, Verified, payload_hash,
+                        verified_signals)
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
@@ -75,6 +77,31 @@ class Interdicted(RuntimeError):
 
 class MiraConfigError(RuntimeError):
     """The client cannot operate safely — refuse rather than guess."""
+
+
+_READING_KEYS = ("signals", "assertions", "payload", "payload_sha256", "readings", "sources")
+
+
+def _refuse_smuggled(proposal: dict[str, Any]) -> None:
+    """Refuse examiner readings arriving inside the proposal.
+
+    `Run.authorize(**proposal)` used to swallow a `signals=` keyword into the
+    proposal. The gate ignores signal keys on a proposal — correctly, since
+    they are the agent's word about itself — so the rule that should have held
+    did not fire and the release beneath it did, while the sealed record showed
+    the reading sitting next to that release. Worse than doing nothing: it
+    looked like governance had considered the reading. Refusing here turns a
+    silent wrong answer into a loud, fixable one.
+    """
+    bad = [k for k in proposal
+           if k in _READING_KEYS or str(k).startswith("signal.")]
+    if bad:
+        raise MiraConfigError(
+            f"{', '.join(sorted(bad))} arrived as part of the proposal, where the gate "
+            "cannot use it and the record would show it beside a decision it had no "
+            "part in. Pass examiner readings as assertions=[...] with payload= or "
+            "payload_sha256=, so they are checked against the registered examiner and "
+            "bound to what was examined.")
 
 
 class CannotEnforce(Interdicted):
@@ -136,6 +163,7 @@ class Mira:
         base_url: str | None = None,
         *,
         policy: PolicyBundle | dict | None = None,
+        examiners: Roster | dict | None = None,
         agent: str = "agent",
         signing_key: SigningKey | str | Path | None = None,
         svid_cert: str | Path | None = None,
@@ -184,6 +212,19 @@ class Mira:
         elif not offline:
             self.bundle = self._fetch_bundle()
 
+        # ---- examiners: who may sign a reading, pinned beside the policy --
+        # Without a roster no assertion verifies, no `signal.*` reaches the
+        # gate, and a condition on an absent field never holds — the same
+        # fail-closed default the bundle has.
+        if isinstance(examiners, Roster):
+            self.roster = examiners
+        elif isinstance(examiners, dict):
+            self.roster = Roster.from_api(examiners)
+        elif not offline:
+            self.roster = self._fetch_roster() or Roster.empty()
+        else:
+            self.roster = Roster.empty()
+
         if self.bundle is None and self.fail_closed and not offline:
             raise MiraConfigError(
                 "no policy bundle could be loaded, and fail_closed is set. "
@@ -214,15 +255,55 @@ class Mira:
             log.warning("mira: could not fetch policy bundle (%s)", e)
             return None
 
+    def _fetch_roster(self) -> Roster | None:
+        if not (self.base_url and self.api_key):
+            return None
+        try:
+            req = urllib.request.Request(
+                f"{self.base_url}/api/v1/examiners",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return Roster.from_api(json.loads(r.read()))
+        except Exception as e:  # noqa: BLE001 — any failure means "no roster"
+            log.warning("mira: could not fetch the examiner roster (%s)", e)
+            return None
+
     def refresh_policy(self) -> bool:
-        """Re-pin the bundle. Keeps the last known-good one on failure — a
-        transient network problem must not silently widen or narrow policy."""
+        """Re-pin the bundle and the examiner roster together. Keeps the last
+        known-good ones on failure — a transient network problem must not
+        silently widen or narrow policy, or change who may sign a reading."""
         fresh = self._fetch_bundle()
+        roster = self._fetch_roster()
         if fresh is None:
             return False
         with self._lock:
             self.bundle = fresh
+            if roster is not None:
+                self.roster = roster
         return True
+
+    # ---------------------------------------------------------- readings
+    def verify_readings(self, assertions: list | None, *, payload: str | bytes | None = None,
+                        payload_sha256: str | None = None,
+                        now_ms: int | None = None) -> Verified:
+        """Signed examiner readings, reduced to what the gate may hear.
+
+        A reading has to be bound to the payload it is about, so pass the
+        payload or its SHA-256; with neither, every reading is refused — the
+        same rule the control plane applies, for the same reason.
+        """
+        import time as _time
+        if payload_sha256 is None and payload is not None:
+            payload_sha256 = payload_hash(payload)
+        parsed = [a if isinstance(a, Assertion) else Assertion.from_dict(a)
+                  for a in (assertions or [])]
+        with self._lock:
+            roster = self.roster
+        return verified_signals(
+            parsed, public_key_for=roster.public_key_for, declared_for=roster.declared_for,
+            payload_hash=payload_sha256,
+            now_ms=now_ms if now_ms is not None else int(_time.time() * 1000))
 
     @property
     def policy_digest(self) -> str | None:
@@ -315,18 +396,45 @@ class Mira:
     # ------------------------------------------------------------ decide
 
     def decide(self, proposal: dict[str, Any], *,
+               assertions: list | None = None, payload: str | bytes | None = None,
+               payload_sha256: str | None = None, verified: Verified | None = None,
                signals: dict[str, Any] | None = None) -> Decision:
         """Evaluate without recording. Used where there is no open run.
 
-        `signals` are verified examiner readings (`{"prompt_injection": 0.93}`)
-        for the payload the proposal carries; a v2 rule with conditions is
-        judged on them. Never pass values the agent produced about itself.
+        Examiner readings come in as signed `assertions`, bound to the payload
+        they are about by `payload` or `payload_sha256`, and are checked
+        against the examiners registered in this workspace before a `signal.*`
+        condition may see them. A caller that has already run
+        `verify_readings` passes the result as `verified`.
         """
+        return self._decide(proposal, assertions=assertions, payload=payload,
+                            payload_sha256=payload_sha256, verified=verified,
+                            signals=signals)[0]
+
+    def _decide(self, proposal: dict[str, Any], *, assertions=None, payload=None,
+                payload_sha256=None, verified: Verified | None = None,
+                signals=None) -> tuple[Decision, Verified | None]:
+        if signals is not None:
+            # The old signature. It took readings on the caller's word, which
+            # in an agent SDK means on the agent's word about itself — the one
+            # source a governance layer must not trust. Nothing in either
+            # codebase used it; refusing is cheaper than explaining it later.
+            raise MiraConfigError(
+                "decide(signals=...) took examiner readings unsigned and unbound. Pass "
+                "assertions=[...] signed by a registered examiner, with payload= or "
+                "payload_sha256=, or a Verified from verify_readings().")
+        _refuse_smuggled(proposal)
+        v = verified
+        if v is None and assertions:
+            v = self.verify_readings(assertions, payload=payload, payload_sha256=payload_sha256)
         with self._lock:
             bundle = self.bundle
         if bundle is None:
-            return _refuse_no_policy(proposal)
-        return evaluate(proposal, bundle, signals=signals)
+            return _refuse_no_policy(proposal), v
+        if v is None:
+            return evaluate(proposal, bundle), None
+        return evaluate(proposal, bundle, signals=v.signals, sources=v.sources,
+                        readings=v.readings), v
 
     # ------------------------------------------------------------ shutdown
 
@@ -460,13 +568,25 @@ class Run:
 
     # ---------------------------------------------------------- authorize
 
-    def authorize(self, **proposal: Any) -> Decision:
+    def authorize(self, proposal: dict[str, Any] | None = None, *,
+                  assertions: list | None = None, payload: str | bytes | None = None,
+                  payload_sha256: str | None = None, verified: Verified | None = None,
+                  **kw: Any) -> Decision:
         """Ask the gate whether this action may happen. Local, synchronous.
 
         Always records the decision — a refusal is evidence, not an error, and
         an auditor needs to see what was attempted as much as what ran.
+
+        The proposal comes as a dict or as keywords, as it always has. Examiner
+        readings come separately, as signed assertions bound to a payload, and
+        are the only way a `signal.*` condition in the rulebook can fire on the
+        path that is actually recorded. Passing them any other way is refused.
         """
-        decision = self.mira.decide(proposal)
+        proposal = {**(proposal or {}), **kw}
+        if payload_sha256 is None and payload is not None:
+            payload_sha256 = payload_hash(payload)
+        decision, v = self.mira._decide(proposal, assertions=assertions,
+                                        payload_sha256=payload_sha256, verified=verified)
         self.decisions.append(decision)
         # The six fields below are what every existing reader expects. The v2
         # ones are added only when they say something, so a plain release seals
@@ -495,14 +615,30 @@ class Run:
         if decision.modified:
             authorization["modifications"] = list(decision.modifications)
             authorization["released"] = _safe(decision.released)
+        predicate = {"authorization": authorization, "proposedAction": _safe(proposal)}
+        content = {"proposal": _safe(proposal), "decision": decision.to_predicate()}
+        if payload_sha256:
+            # What the readings were bound to, in the signed record rather than
+            # only the hot tier, so the decision can be tied to the content it
+            # was judged on after retention has deleted the content itself.
+            predicate["payloadSha256"] = payload_sha256
+        if v is not None:
+            # Who said what. The same four keys the control plane seals, so a
+            # record reads the same whichever side of the seam wrote it.
+            content["examiner"] = {
+                "signals": v.signals, "sources": v.sources, "readings": v.readings,
+                "assertions": [a.to_dict() if isinstance(a, Assertion) else a
+                               for a in (assertions or [])],
+            }
+            if v.rejected:
+                content["examiner"]["rejected"] = v.rejected
         self.record(
             RecordType.DECISION,
             node="policy_gate",
-            predicate={"authorization": authorization,
-                       "proposedAction": _safe(proposal)},
+            predicate=predicate,
             subject=[{"name": "action",
                       "digest": {"sha256": content_hash(proposal).removeprefix("sha256:")}}],
-            content={"proposal": _safe(proposal), "decision": decision.to_predicate()},
+            content=content,
         )
         return decision
 

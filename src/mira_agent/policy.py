@@ -380,25 +380,38 @@ def decision_request(proposal: dict[str, Any],
 
 
 def _heard_by(rule: Rule, request: dict[str, Any],
-              readings: dict[str, dict[str, Any]] | None) -> dict[str, Any]:
+              readings: dict[str, dict[str, Any]] | None,
+              sources: dict[str, str] | None = None) -> dict[str, Any]:
     """A rule that names its examiners is judged on their readings alone;
     when they disagree on a score the higher is used. With nothing
-    attributed, the merged signals stand."""
-    if not rule.examiners or not readings:
+    attributed, the merged signals stand.
+
+    `sources` is the server's second way of attributing a reading — which
+    examiner won each signal — and the SDK did not take it. So a rule naming
+    its examiners, judged on a signal attributed only through `sources`,
+    decided one way at the control plane and the other in the agent. The
+    parity test never passed `sources`, which is why nothing caught it.
+    """
+    if not rule.examiners or (not readings and not sources):
         return request
     out = {k: v for k, v in request.items() if not k.startswith(SIGNAL_PREFIX)}
     for k in request:
-        if k.startswith(SIGNAL_PREFIX) and k in readings:
+        if not k.startswith(SIGNAL_PREFIX):
+            continue
+        if readings and k in readings:
             heard = [readings[k][e] for e in rule.examiners if e in readings[k]]
             if heard:
                 nums = [h for h in heard if isinstance(h, (int, float)) and not isinstance(h, bool)]
                 out[k] = max(nums) if len(nums) == len(heard) else heard[0]
+        elif sources and sources.get(k) in rule.examiners:
+            out[k] = request[k]
     return out
 
 
 def evaluate(proposal: dict[str, Any], bundle: PolicyBundle, *,
              signals: dict[str, Any] | None = None,
-             readings: dict[str, dict[str, Any]] | None = None) -> Decision:
+             readings: dict[str, dict[str, Any]] | None = None,
+             sources: dict[str, str] | None = None) -> Decision:
     """Authorize, or refuse, one proposed action. Pure and side-effect free."""
     request = decision_request(proposal, signals)
     t0 = time.perf_counter_ns()
@@ -407,7 +420,7 @@ def evaluate(proposal: dict[str, Any], bundle: PolicyBundle, *,
     evaluated: list[str] = []
     for rule in bundle.rules:
         evaluated.append(rule.id)
-        heard = _heard_by(rule, request, readings)
+        heard = _heard_by(rule, request, readings, sources)
         # The fail-open case, closed: a rule whose reading never arrived does
         # not fire, so the request falls through to whatever is underneath —
         # which for a deny above a broad allow means an examiner going quiet
@@ -453,7 +466,7 @@ def evaluate(proposal: dict[str, Any], bundle: PolicyBundle, *,
     if matched is not None and matched.reroute_to and disposition in RELEASING:
         asked_for = dict(request)
         onward = evaluate({**proposal, "target_instance": matched.reroute_to}, bundle,
-                          signals=signals, readings=readings)
+                          signals=signals, readings=readings, sources=sources)
         decide_us = (time.perf_counter_ns() - t0) / 1_000.0
         if onward.rerouted:
             return Decision(

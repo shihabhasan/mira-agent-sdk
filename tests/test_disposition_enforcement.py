@@ -105,8 +105,8 @@ def _authorization(monkeypatch, wire, proposal):
             sealed.update(predicate)
 
     class FakeMira:
-        def decide(self, p):
-            return evaluate(p, PolicyBundle.from_dict(wire))
+        def _decide(self, p, **_):
+            return evaluate(p, PolicyBundle.from_dict(wire)), None
 
     FakeRun(FakeMira()).authorize(**proposal)
     return sealed["authorization"]
