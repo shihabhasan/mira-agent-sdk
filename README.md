@@ -364,6 +364,20 @@ ok, who = verify_witnesses(note, {"witness/alpha": alpha_pub}, threshold=2)
 C2SP notes carry many signature lines, so witnessing is additive: a note with
 witnesses still verifies for anyone who only knows the log key.
 
+An exported bundle carries the witnessed note when a witness has co-signed a
+checkpoint covering the run. `mira-verify` checks it when you pin the key:
+
+```bash
+mira-verify bundle.json --witness witness/liora-1=<base64 public key>
+mira-verify bundle.json --witness witness/a=<key> --witness witness/b=<key> --witness-threshold 2
+```
+
+Get the key from the witness's operator, not from the bundle. The bundle lists
+who co-signed it as a convenience, but a key read from the same file as the
+signature proves no more than the file does. Without `--witness`, witness lines
+are reported as present and unchecked, and the log's own signature is still
+verified as before.
+
 ## Packages
 
 Two distributions, so a server or an auditor never has to install a client:

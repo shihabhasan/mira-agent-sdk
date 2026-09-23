@@ -15,6 +15,14 @@ pass:
 
 Check 4 is the one people skip, and it is the one that catches a record that
 was never actually in the published log.
+
+A sixth check is optional because it needs something the bundle cannot supply:
+witness keys. The log's own signature proves the log published a root, not
+that it never published a different one; a witness co-signs only a root that
+extends what it signed before. Pin the witness's public key — obtained from
+the witness, never from the bundle, or the check proves no more than the file
+does — and pass it as `witness_keys`. The bundle is then valid only if enough
+of those witnesses co-signed the checkpoint the proofs fold to.
 """
 
 from __future__ import annotations
@@ -22,7 +30,7 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass, field
 
-from .checkpoint import verify_checkpoint
+from .checkpoint import parse_checkpoint, verify_checkpoint, verify_witnesses
 from .keys import verify as verify_sig
 from .mmr import InclusionProof, verify_inclusion, verify_root
 from .records import Envelope, sha256_hex
@@ -71,14 +79,26 @@ class BundleResult:
     checkpoint_signature_valid: bool
     records: list[RecordResult] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    # Signature lines on the checkpoint other than the log's own, by name —
+    # present is not the same as checked.
+    witnesses_present: list[str] = field(default_factory=list)
+    # Witnesses whose co-signature verified against a key the caller pinned.
+    witnessed_by: list[str] = field(default_factory=list)
+    # How many pinned witnesses had to co-sign; 0 when none were pinned.
+    witness_threshold: int = 0
 
     @property
     def invalid_records(self) -> list[RecordResult]:
         return [r for r in self.records if not r.valid]
 
 
-def verify_bundle(bundle: dict) -> BundleResult:
+def verify_bundle(bundle: dict, *, witness_keys: dict[str, bytes] | None = None,
+                  witness_threshold: int | None = None) -> BundleResult:
     """Verify an exported bundle offline.
+
+    With `witness_keys` ({name: raw Ed25519 public key}), the checkpoint must
+    also carry co-signatures from at least `witness_threshold` of them
+    (default 1). Keys named in the bundle itself are never used for this.
 
     Expected shape (what `GET /api/v1/txn/{id}/bundle` produces):
 
@@ -123,6 +143,23 @@ def verify_bundle(bundle: dict) -> BundleResult:
             else:
                 result.checkpoint_signature_valid = True
                 root_hex = parsed.root_hex
+        seen = parse_checkpoint(note)
+        if seen is not None:
+            result.witnesses_present = sorted({s.key_name for s in seen.witnesses()})
+
+    # ---- 6. witnesses, when the caller pinned any ------------------------
+    witnessed = True
+    if witness_keys:
+        need = max(1, witness_threshold if witness_threshold is not None else 1)
+        result.witness_threshold = need
+        ok, who = verify_witnesses(note or "", witness_keys, threshold=need)
+        result.witnessed_by = who
+        witnessed = ok
+        if not ok:
+            result.errors.append(
+                f"checkpoint co-signed by {len(who)} of the {need} pinned witness(es) "
+                f"required ({', '.join(who) or 'none'}); a root no witness vouched for "
+                f"proves only what the log's operator says")
 
     # ---- per record ----------------------------------------------------
     prev_hash: str | None = None
@@ -184,6 +221,7 @@ def verify_bundle(bundle: dict) -> BundleResult:
     result.valid = (
         bool(result.records)
         and result.checkpoint_signature_valid
+        and witnessed
         and all(r.valid for r in result.records)
     )
     return result

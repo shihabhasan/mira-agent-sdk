@@ -1,6 +1,6 @@
 [project]
 name = "mira-agent-core"
-version = "0.2.0"
+version = "0.3.0"
 description = "Canonical provenance records, Ed25519 signing, Merkle proofs and offline verification for Mira"
 readme = "README.md"
 requires-python = ">=3.11"

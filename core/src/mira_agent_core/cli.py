@@ -2,6 +2,7 @@
 
     mira-verify bundle.json
     mira-verify bundle.json --json
+    mira-verify bundle.json --witness witness/liora-1=<base64 public key>
 
 Exit code 0 means every record verified; 1 means something did not. That makes
 it usable as a CI gate, not just a human tool.
@@ -10,6 +11,7 @@ it usable as a CI gate, not just a human tool.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import sys
 from pathlib import Path
@@ -27,6 +29,15 @@ def _render(res: BundleResult, *, verbose: bool) -> str:
     lines.append("")
     cp = _TICK if res.checkpoint_signature_valid else _CROSS
     lines.append(f"  {cp} checkpoint signature")
+    if res.witness_threshold:
+        ok = len(res.witnessed_by) >= res.witness_threshold
+        lines.append(f"  {_TICK if ok else _CROSS} witnessed by "
+                     f"{', '.join(res.witnessed_by) or 'none of the pinned witnesses'}"
+                     f" ({len(res.witnessed_by)} of {res.witness_threshold} required)")
+    elif res.witnesses_present:
+        lines.append(f"  ! {len(res.witnesses_present)} witness signature(s) present "
+                     f"({', '.join(res.witnesses_present)}) but not checked; pin keys "
+                     f"with --witness NAME=KEY")
     lines.append(f"  {len(res.records)} record(s)")
 
     bad = res.invalid_records
@@ -67,7 +78,26 @@ def main(argv: list[str] | None = None) -> int:
                     help="machine-readable output")
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="list every record, not just failures")
+    ap.add_argument("--witness", action="append", default=[], metavar="NAME=KEY",
+                    help="a witness public key (base64 Ed25519) you obtained from the "
+                         "witness itself; repeatable. The checkpoint must carry its "
+                         "co-signature")
+    ap.add_argument("--witness-threshold", type=int, default=None, metavar="N",
+                    help="how many of the --witness keys must have co-signed (default 1)")
     args = ap.parse_args(argv)
+
+    witness_keys: dict[str, bytes] = {}
+    for spec in args.witness:
+        name, _, raw = spec.partition("=")
+        try:
+            key = base64.b64decode(raw, validate=True)
+            if not name or len(key) != 32:
+                raise ValueError
+        except ValueError:
+            print(f"--witness {spec!r} is not NAME=<base64 Ed25519 public key>",
+                  file=sys.stderr)
+            return 2
+        witness_keys[name] = key
 
     try:
         raw = sys.stdin.read() if args.bundle == "-" else Path(args.bundle).read_text()
@@ -79,13 +109,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"not valid JSON: {e}", file=sys.stderr)
         return 2
 
-    res = verify_bundle(bundle)
+    res = verify_bundle(bundle, witness_keys=witness_keys or None,
+                        witness_threshold=args.witness_threshold)
 
     if args.as_json:
         print(json.dumps({
             "txn_id": res.txn_id,
             "valid": res.valid,
             "checkpoint_signature_valid": res.checkpoint_signature_valid,
+            "witnesses_present": res.witnesses_present,
+            "witnessed_by": res.witnessed_by,
+            "witness_threshold": res.witness_threshold,
             "errors": res.errors,
             "records": [
                 {

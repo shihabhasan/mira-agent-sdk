@@ -9,4 +9,4 @@ sealed record cannot be corrected afterwards, only superseded.
 
 `tests/test_version.py` fails if this and pyproject.toml disagree.
 """
-__version__ = "0.10.0"
+__version__ = "0.11.0"

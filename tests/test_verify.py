@@ -131,3 +131,89 @@ def test_cli_json_output_is_machine_readable(capsys):
 
 def test_cli_handles_a_missing_file(capsys):
     assert cli_main(["/nonexistent/bundle.json"]) == 2
+
+
+# ------------------------------------------------------------------ witnesses
+#
+# The log's signature proves the log published a root; a witness's proves a
+# second party checked that root extends everything it signed before. An
+# auditor pins the witness key themselves — a key read out of the bundle would
+# make the check prove no more than the file.
+
+def _cosign(bundle: dict, key) -> dict:
+    note = bundle["checkpoint"]["note"]
+    body = note.split("\n\n", 1)[0] + "\n"
+    kid = bytes.fromhex(key.key_id)
+    line = f"— {key.name} " + base64.b64encode(kid + key.sign(body.encode())).decode()
+    out = copy.deepcopy(bundle)
+    out["checkpoint"]["note"] = note.rstrip("\n") + "\n" + line + "\n"
+    return out
+
+
+@pytest.fixture
+def witness():
+    from mira_agent_core.keys import SigningKey
+    return SigningKey.generate("witness/alpha")
+
+
+def test_a_witnessed_bundle_verifies_against_the_pinned_key(bundle, witness):
+    res = verify_bundle(_cosign(bundle, witness),
+                        witness_keys={"witness/alpha": witness.public_bytes})
+    assert res.valid, res.errors
+    assert res.witnessed_by == ["witness/alpha"] and res.witness_threshold == 1
+
+
+def test_an_unwitnessed_bundle_fails_when_a_witness_is_required(bundle, witness):
+    res = verify_bundle(bundle, witness_keys={"witness/alpha": witness.public_bytes})
+    assert not res.valid
+    assert any("pinned witness" in e for e in res.errors)
+
+
+def test_a_signature_under_the_right_name_but_another_key_does_not_count(bundle, witness):
+    from mira_agent_core.keys import SigningKey
+    impostor = SigningKey.generate("witness/alpha")
+    res = verify_bundle(_cosign(bundle, impostor),
+                        witness_keys={"witness/alpha": witness.public_bytes})
+    assert not res.valid and res.witnessed_by == []
+
+
+def test_a_cosignature_does_not_transfer_to_a_forged_root(bundle, witness):
+    signed = _cosign(bundle, witness)
+    line = signed["checkpoint"]["note"].strip().split("\n")[-1]
+    forged = copy.deepcopy(bundle)
+    forged["checkpoint"]["root_hex"] = "00" * 32
+    body, sigs = forged["checkpoint"]["note"].split("\n\n", 1)
+    lines = body.split("\n")
+    lines[2] = base64.b64encode(b"\x00" * 32).decode()
+    forged["checkpoint"]["note"] = "\n".join(lines) + "\n\n" + sigs.rstrip("\n") + "\n" + line + "\n"
+    res = verify_bundle(forged, witness_keys={"witness/alpha": witness.public_bytes})
+    assert not res.valid and res.witnessed_by == []
+
+
+def test_the_threshold_counts_distinct_pinned_witnesses(bundle, witness):
+    from mira_agent_core.keys import SigningKey
+    beta = SigningKey.generate("witness/beta")
+    keys = {"witness/alpha": witness.public_bytes, "witness/beta": beta.public_bytes}
+    one = _cosign(bundle, witness)
+    assert verify_bundle(one, witness_keys=keys, witness_threshold=1).valid
+    assert not verify_bundle(one, witness_keys=keys, witness_threshold=2).valid
+    both = _cosign(one, beta)
+    assert verify_bundle(both, witness_keys=keys, witness_threshold=2).valid
+
+
+def test_witness_lines_are_named_but_not_trusted_without_a_key(bundle, witness):
+    res = verify_bundle(_cosign(bundle, witness))
+    assert res.valid, "an unpinned witness line must not break the log's own check"
+    assert res.witnesses_present == ["witness/alpha"] and res.witnessed_by == []
+
+
+def test_cli_checks_a_pinned_witness(tmp_path, bundle, witness, capsys):
+    p = tmp_path / "w.json"
+    p.write_text(json.dumps(_cosign(bundle, witness)))
+    pin = f"witness/alpha={base64.b64encode(witness.public_bytes).decode()}"
+    assert cli_main([str(p), "--witness", pin]) == 0
+    assert "witnessed by witness/alpha" in capsys.readouterr().out
+    assert cli_main([str(BUNDLE_PATH), "--witness", pin]) == 1
+    assert cli_main([str(p)]) == 0
+    assert "not checked" in capsys.readouterr().out
+    assert cli_main([str(p), "--witness", "witness/alpha=nope"]) == 2

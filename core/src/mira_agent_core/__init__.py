@@ -32,7 +32,7 @@ from .records import (
 )
 from .verify import BundleResult, RecordResult, verify_bundle
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __all__ = [
     "backend", "rust_available",
     "Checkpoint", "Signature", "parse_checkpoint", "verify_checkpoint",
