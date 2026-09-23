@@ -35,6 +35,8 @@ import urllib.error
 import urllib.request
 import uuid
 from contextlib import contextmanager
+
+from ._version import __version__
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
@@ -548,7 +550,10 @@ class Run:
                 predicate={
                     **(predicate or {}),
                     **self.mira.identity.to_predicate(),
-                    "sdk": "mira-agent-sdk/0.2.0",
+                    # Which code produced this record. It is sealed, so a
+                    # wrong value here is a permanent misstatement in the
+                    # evidence rather than a cosmetic one.
+                    "sdk": f"mira-agent-sdk/{__version__}",
                 },
                 subject=subject,
                 ts_ms=ts_ms,
