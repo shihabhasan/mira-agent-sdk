@@ -1,0 +1,138 @@
+{
+  "bundle_id": "liora/pharmacovigilance-case-handling",
+  "version": "1.0.0",
+  "default_effect": "deny",
+  "rules": [
+    {
+      "id": "PV-1",
+      "disposition": "interdict",
+      "effect": "deny",
+      "description": "Identifiable patient health information is not sent to an external model.",
+      "match": {
+        "action": "model_call",
+        "target_instance": "external"
+      },
+      "conditions": [
+        {
+          "field": "signal.pii_medical",
+          "op": ">=",
+          "value": 0.8
+        }
+      ],
+      "escalate_to": null,
+      "evidence": [
+        "payload_hash",
+        "examiner_report"
+      ],
+      "examiners": [
+        "mira-basic"
+      ],
+      "provenance": {
+        "authored_by": "liora/policy-templates"
+      }
+    },
+    {
+      "id": "PV-2",
+      "disposition": "interdict",
+      "effect": "deny",
+      "description": "No agent amends or deletes a case report or a locked case. A correction is a follow-up report, so the original stays on the record.",
+      "match": {
+        "action": [
+          "amend",
+          "delete"
+        ],
+        "artifact_type": [
+          "serious_icsr",
+          "non_serious_icsr",
+          "locked_case"
+        ]
+      },
+      "escalate_to": null,
+      "evidence": [
+        "actor_identity",
+        "payload_hash"
+      ],
+      "provenance": {
+        "authored_by": "liora/policy-templates"
+      }
+    },
+    {
+      "id": "PV-3",
+      "disposition": "elevate",
+      "effect": "deny",
+      "description": "A serious adverse event report goes to the regulator only after the QPPV has reviewed the case and released it. A timer expiring is not a release.",
+      "match": {
+        "action": "submit",
+        "target_instance": "regulator",
+        "artifact_type": "serious_icsr"
+      },
+      "escalate_to": "QPPV",
+      "evidence": [
+        "approver_identity",
+        "payload_hash",
+        "model_identity"
+      ],
+      "provenance": {
+        "authored_by": "liora/policy-templates"
+      }
+    },
+    {
+      "id": "PV-4",
+      "disposition": "release",
+      "effect": "allow",
+      "description": "A non-serious report is submitted on its routine timeline without waiting for a person. The evidence is sealed either way.",
+      "match": {
+        "action": "submit",
+        "target_instance": "regulator",
+        "artifact_type": "non_serious_icsr"
+      },
+      "escalate_to": null,
+      "evidence": [
+        "payload_hash",
+        "model_identity"
+      ],
+      "provenance": {
+        "authored_by": "liora/policy-templates"
+      }
+    },
+    {
+      "id": "PV-5",
+      "disposition": "release",
+      "effect": "allow",
+      "description": "A case the agents should not submit is never lost: it can always be queued in the safety database for manual processing.",
+      "match": {
+        "action": "queue",
+        "target_instance": "safety_database"
+      },
+      "escalate_to": null,
+      "evidence": [
+        "payload_hash"
+      ],
+      "provenance": {
+        "authored_by": "liora/policy-templates"
+      }
+    },
+    {
+      "id": "PV-6",
+      "disposition": "release",
+      "effect": "allow",
+      "description": "Routine case processing inside the organisation: intake, coding, assessment and drafting the narrative.",
+      "match": {
+        "action": [
+          "intake",
+          "code",
+          "assess",
+          "draft_narrative",
+          "inspect"
+        ]
+      },
+      "escalate_to": null,
+      "evidence": [
+        "payload_hash"
+      ],
+      "provenance": {
+        "authored_by": "liora/policy-templates"
+      }
+    }
+  ]
+}

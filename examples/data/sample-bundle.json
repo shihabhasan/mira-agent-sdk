@@ -1,0 +1,138 @@
+{
+ "txn_id": "txn-30e5334addf3",
+ "exported_at": 1786839647801,
+ "keys": {
+  "3444fa8f": {
+   "name": "mira/ledger",
+   "public_b64": "tMJ5SN3zGN5GkJyR1whFtBEp+asLsXEHew1N+zhI1M4="
+  },
+  "18d12315": {
+   "name": "mira/ingest",
+   "public_b64": "EiY0Q2TXS+TX7sCKrygKOZD4gsy3rgcdJCngfcbprQI="
+  }
+ },
+ "checkpoint": {
+  "note": "mira.liora-ai.co/ledger/v1\n38\nn3A9n8lEU0kT5vtaVLUs7+fITYsbDkWcsFJCAFliZIM=\n\n\u2014 mira/ledger NET6j2EXuzC7yYblxf3xMZfe/0NxHcf/JmBplKk0ZIP9Txr3d4Nt0pL9/eSpxbMLflhESm6rLOHxX3APBy4hI1zh4Qk=\n",
+  "root_hex": "9f703d9fc944534913e6fb5a54b52cefe7c84d8b1b0e459cb052420059626483",
+  "mmr_size": 38,
+  "key_name": "mira/ledger"
+ },
+ "records": [
+  {
+   "seq": 0,
+   "leaf_index": 16,
+   "record_type": "INTENT",
+   "node": "intent",
+   "envelope": {
+    "payloadType": "application/vnd.mira.provenance+json",
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYWdlbnQiOiJmaXh0dXJlLWFnZW50IiwiY2hhaW4iOnsibW1yU2l6ZUJlZm9yZSI6MzEsInByZXZSZWNvcmRIYXNoIjoiIiwic2VxIjowfSwiY2xpZW50QXR0ZXN0YXRpb24iOnsia2V5SWQiOiJmMWY3ZjBmNyIsImtleU5hbWUiOiJtaXJhL2FnZW50L2ZpeHR1cmUtYWdlbnQiLCJwdWJsaWNLZXlCNjQiOiIyek1FYnl6TS8wRGQ5RlFqa2lrNlFzdHVidkpOSkx2THd2R2lBYjlqdDdvPSIsInJlY29yZEhhc2giOiIwM2MwYTJlNTBkNjYzNWFhMDc0ZDE0ZmY3N2I0MDUyMTI4YWNlNmU0MmQxNzFiODdhMGE0MWRmOGI5YzRjNzZjIiwic2lnbmF0dXJlIjoid0dnbk4vbHgzVlU2RWo1R0ZEeXgvQWlRNUhta3hoUkh3Mll4a0ZhUkwvdGllNnl5K0V0MXE0bGlqelZaRGV6azJhSzg0S2hqL3ZtMEMvUnR4YzRCQnc9PSIsInZlcmlmaWVkIjp0cnVlfSwiaWRlbnRpdHkiOnsibGVnSWQiOjEsIm1pcmFUeG5JZCI6InR4bi0zMGU1MzM0YWRkZjMiLCJ0aHJlYWRJZCI6InR4bi0zMGU1MzM0YWRkZjMifSwiaW50ZW50SGFzaCI6InNoYTI1Njo1YjNhNjRhYmYxOGI5OTgxM2IwOWY3MTZiY2MyNzVkNDA3MjA1ODkyMDdlNmYzM2NjNWQ0OGY1YmY5NjNkZTE1IiwibGFuZ2dyYXBoIjp7fSwib3RlbCI6e30sInJlY29yZFR5cGUiOiJJTlRFTlQiLCJzZGsiOiJtaXJhLXNkay8wLjEuMCIsInRzTXMiOjE3ODY4Mzk2NDYyODl9LCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9saW9yYS1haS5jby9taXJhL2FnZW50LXN0ZXAvdjEiLCJzdWJqZWN0IjpbXX0=",
+    "signatures": [
+     {
+      "keyid": "18d12315",
+      "sig": "2bkUGf50efufLQFxChNspqzwN9OZts4x8TrtTKJRb6Cr5JplLTWjv74EyPdLbl2lT2UhYztkcU878bKmqtfyAw=="
+     }
+    ],
+    "recordHash": "bc8ed668d67d17531df951ebf743568efb85c855db9ed9058af97bdceb69f0a3"
+   },
+   "proof": {
+    "leaf_pos": 31,
+    "mmr_size": 38,
+    "path": [
+     "f21e912014e64ce7a5443ca349c4b5946d9b42891d01ada1fd4b82d52630d1c6",
+     "17192b6cc1f4ae53d25da1eabca7a021b27c675f31d6d60ade1e26e02c372294"
+    ],
+    "peaks": [
+     "fb10e00806e40a647b4dcddad298644aead359313c4f75c634ddf7a8a3cdbafe",
+     "7bfee82f05804a4397de2cbb106293c0f8dd6c5efab5afcbb28b11f34df396b0"
+    ]
+   }
+  },
+  {
+   "seq": 1,
+   "leaf_index": 17,
+   "record_type": "DECISION",
+   "node": "policy_gate",
+   "envelope": {
+    "payloadType": "application/vnd.mira.provenance+json",
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYWdlbnQiOiJmaXh0dXJlLWFnZW50IiwiYXV0aG9yaXphdGlvbiI6eyJkZWNpZGVVcyI6NS44LCJkZWNpc2lvbiI6ImRlbnkiLCJwb2xpY3lCdW5kbGVJZCI6Inh0eXBlL3NlcnZpY2Vub3ctY2hhbmdlLWNvbnRyb2wiLCJwb2xpY3lCdW5kbGVTaGEyNTYiOiJzaGEyNTY6MTU3Njk3N2UwNjY2MGVkNzY0NjU1MjhhZGJkNGIzZjJmZDg3NzNjODM3NWE0ZjNkZGM2MmMyNGYwNjEwYjU0MyIsInBvbGljeUJ1bmRsZVZlcnNpb24iOiIyLjQuMCIsInJ1bGVJZCI6IkJPRC0xLjEifSwiY2hhaW4iOnsibW1yU2l6ZUJlZm9yZSI6MzIsInByZXZSZWNvcmRIYXNoIjoiYmM4ZWQ2NjhkNjdkMTc1MzFkZjk1MWViZjc0MzU2OGVmYjg1Yzg1NWRiOWVkOTA1OGFmOTdiZGNlYjY5ZjBhMyIsInNlcSI6MX0sImNsaWVudEF0dGVzdGF0aW9uIjp7ImtleUlkIjoiZjFmN2YwZjciLCJrZXlOYW1lIjoibWlyYS9hZ2VudC9maXh0dXJlLWFnZW50IiwicHVibGljS2V5QjY0IjoiMnpNRWJ5ek0vMERkOUZRamtpazZRc3R1YnZKTkpMdkx3dkdpQWI5anQ3bz0iLCJyZWNvcmRIYXNoIjoiMjI3YThmZjZkMDVjYTk1NDY2MGJmNWYwNDM0NTlmMjI3OTBjODZmMGFjMjJkMDEwZWUyNjJiMjM1MWE1MjdmNyIsInNpZ25hdHVyZSI6IjNQcGdNSHd3c1QvN3JKMVRXNk1RV2EreUt5RXFpYXh2KysyNTYxUTRiUlBGdUE0Yk5aQTUzdThQMUR4Qmg5b2o2RlM4Zm5pSHVRZHNBTURWa2hBS0JnPT0iLCJ2ZXJpZmllZCI6dHJ1ZX0sImlkZW50aXR5Ijp7ImxlZ0lkIjoxLCJtaXJhVHhuSWQiOiJ0eG4tMzBlNTMzNGFkZGYzIiwidGhyZWFkSWQiOiJ0eG4tMzBlNTMzNGFkZGYzIn0sImxhbmdncmFwaCI6e30sIm90ZWwiOnt9LCJwcm9wb3NlZEFjdGlvbiI6eyJhY3Rpb24iOiJkZXBsb3kiLCJhcnRpZmFjdCI6InVwZGF0ZV9zZXQ6WCIsImFydGlmYWN0X3R5cGUiOiJ1cGRhdGVfc2V0IiwidGFyZ2V0X2luc3RhbmNlIjoicHJvZCJ9LCJyZWNvcmRUeXBlIjoiREVDSVNJT04iLCJzZGsiOiJtaXJhLXNkay8wLjEuMCIsInRzTXMiOjE3ODY4Mzk2NDYyOTB9LCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9saW9yYS1haS5jby9taXJhL2FnZW50LXN0ZXAvdjEiLCJzdWJqZWN0IjpbeyJkaWdlc3QiOnsic2hhMjU2IjoiN2Y5Y2VhZTRlMzQwNDkwNzhhMDU4N2I3NWI1ZmQ5ZjBmYzE1ZjI3MjliZDEwNjRjODcyZTZiZGM5N2E0ZmZmOSJ9LCJuYW1lIjoiYWN0aW9uIn1dfQ==",
+    "signatures": [
+     {
+      "keyid": "18d12315",
+      "sig": "+56Gd80OuKn5GbgYZGtis5GZfgx3B33UhwXK3fUiytKigylZIxlSHY3zC6Z0MZOXZqo5CL3d8Q49WzavU8RJDg=="
+     }
+    ],
+    "recordHash": "2e51f3cebbe8749a59f77e8839af6c977bed861579eaf30db67f4256bb5ebeb4"
+   },
+   "proof": {
+    "leaf_pos": 32,
+    "mmr_size": 38,
+    "path": [
+     "6f189e47a84d0c842df8eaaac7d291135fa95bc2d8142d75157365b5070f7afb",
+     "17192b6cc1f4ae53d25da1eabca7a021b27c675f31d6d60ade1e26e02c372294"
+    ],
+    "peaks": [
+     "fb10e00806e40a647b4dcddad298644aead359313c4f75c634ddf7a8a3cdbafe",
+     "7bfee82f05804a4397de2cbb106293c0f8dd6c5efab5afcbb28b11f34df396b0"
+    ]
+   }
+  },
+  {
+   "seq": 2,
+   "leaf_index": 18,
+   "record_type": "DECISION",
+   "node": "policy_gate",
+   "envelope": {
+    "payloadType": "application/vnd.mira.provenance+json",
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYWdlbnQiOiJmaXh0dXJlLWFnZW50IiwiYXV0aG9yaXphdGlvbiI6eyJkZWNpZGVVcyI6My41LCJkZWNpc2lvbiI6ImFsbG93IiwicG9saWN5QnVuZGxlSWQiOiJ4dHlwZS9zZXJ2aWNlbm93LWNoYW5nZS1jb250cm9sIiwicG9saWN5QnVuZGxlU2hhMjU2Ijoic2hhMjU2OjE1NzY5NzdlMDY2NjBlZDc2NDY1NTI4YWRiZDRiM2YyZmQ4NzczYzgzNzVhNGYzZGRjNjJjMjRmMDYxMGI1NDMiLCJwb2xpY3lCdW5kbGVWZXJzaW9uIjoiMi40LjAiLCJydWxlSWQiOiJCT0QtMi4xIn0sImNoYWluIjp7Im1tclNpemVCZWZvcmUiOjM0LCJwcmV2UmVjb3JkSGFzaCI6IjJlNTFmM2NlYmJlODc0OWE1OWY3N2U4ODM5YWY2Yzk3N2JlZDg2MTU3OWVhZjMwZGI2N2Y0MjU2YmI1ZWJlYjQiLCJzZXEiOjJ9LCJjbGllbnRBdHRlc3RhdGlvbiI6eyJrZXlJZCI6ImYxZjdmMGY3Iiwia2V5TmFtZSI6Im1pcmEvYWdlbnQvZml4dHVyZS1hZ2VudCIsInB1YmxpY0tleUI2NCI6IjJ6TUVieXpNLzBEZDlGUWpraWs2UXN0dWJ2Sk5KTHZMd3ZHaUFiOWp0N289IiwicmVjb3JkSGFzaCI6IjJkOGRlYzhkZTA5NDdiZTQ3OGI4MjQ5MTBmNGVkODJmNGE4NGY5YzgyYWU2N2ZhYTgzMzY1N2JkMWY2NjFmYjQiLCJzaWduYXR1cmUiOiJzMXJCWjQweWVnamR6aDJ5NVRtWDAwKzNkbkxpUnpFbnRLQUJvMGVYWE1YR2FCQWgvYjdZS2gzbzNYaC9qU0RyWUo3aWNlZWdYelBuelliZ0RLOWdEZz09IiwidmVyaWZpZWQiOnRydWV9LCJpZGVudGl0eSI6eyJsZWdJZCI6MSwibWlyYVR4bklkIjoidHhuLTMwZTUzMzRhZGRmMyIsInRocmVhZElkIjoidHhuLTMwZTUzMzRhZGRmMyJ9LCJsYW5nZ3JhcGgiOnt9LCJvdGVsIjp7fSwicHJvcG9zZWRBY3Rpb24iOnsiYWN0aW9uIjoiZGVwbG95IiwiYXJ0aWZhY3QiOiJ1cGRhdGVfc2V0OlgiLCJhcnRpZmFjdF90eXBlIjoidXBkYXRlX3NldCIsInRhcmdldF9pbnN0YW5jZSI6ImRldiJ9LCJyZWNvcmRUeXBlIjoiREVDSVNJT04iLCJzZGsiOiJtaXJhLXNkay8wLjEuMCIsInRzTXMiOjE3ODY4Mzk2NDYyOTB9LCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9saW9yYS1haS5jby9taXJhL2FnZW50LXN0ZXAvdjEiLCJzdWJqZWN0IjpbeyJkaWdlc3QiOnsic2hhMjU2IjoiZGEzOTEyYmIxNzQ4MTVjNWZkYTI0NmRhMWYyMjU5N2UzMTMyYTU1YWY2NmE2ZmZiN2I3ZWNjNjUzOTUwMjE1NCJ9LCJuYW1lIjoiYWN0aW9uIn1dfQ==",
+    "signatures": [
+     {
+      "keyid": "18d12315",
+      "sig": "ikwfaHnY4rcO2Bj2HJmRwkVNbp0C/fRLGri1ctoUxIas2majKLVnjeqgfxtaITyYYiP7aIH67UDgNsTosTZXDQ=="
+     }
+    ],
+    "recordHash": "b2429ab992d455054e75231954c6f658d6d397d2d841694508833e6233dcf5c0"
+   },
+   "proof": {
+    "leaf_pos": 34,
+    "mmr_size": 38,
+    "path": [
+     "657285ab3a00b69eb5ab8806d469a1dfae05f624ea66687ae101394bc6313061",
+     "810c0d3a7b90d80f4329cc241bc61c02c35a3f65f0114b1f6d721c94b522c9ab"
+    ],
+    "peaks": [
+     "fb10e00806e40a647b4dcddad298644aead359313c4f75c634ddf7a8a3cdbafe",
+     "7bfee82f05804a4397de2cbb106293c0f8dd6c5efab5afcbb28b11f34df396b0"
+    ]
+   }
+  },
+  {
+   "seq": 3,
+   "leaf_index": 19,
+   "record_type": "SPAN",
+   "node": "apply",
+   "envelope": {
+    "payloadType": "application/vnd.mira.provenance+json",
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYWdlbnQiOiJmaXh0dXJlLWFnZW50IiwiY2hhaW4iOnsibW1yU2l6ZUJlZm9yZSI6MzUsInByZXZSZWNvcmRIYXNoIjoiYjI0MjlhYjk5MmQ0NTUwNTRlNzUyMzE5NTRjNmY2NThkNmQzOTdkMmQ4NDE2OTQ1MDg4MzNlNjIzM2RjZjVjMCIsInNlcSI6M30sImNsaWVudEF0dGVzdGF0aW9uIjp7ImtleUlkIjoiZjFmN2YwZjciLCJrZXlOYW1lIjoibWlyYS9hZ2VudC9maXh0dXJlLWFnZW50IiwicHVibGljS2V5QjY0IjoiMnpNRWJ5ek0vMERkOUZRamtpazZRc3R1YnZKTkpMdkx3dkdpQWI5anQ3bz0iLCJyZWNvcmRIYXNoIjoiOGNhNmQ4Y2UxNzgwMjZkZWNmMzNkMTczZTVjMTgxNGQ5ZGYzNjdhYjUyMWMzMGUxMGEzODM5MGI3OTRjZjU5NiIsInNpZ25hdHVyZSI6IkVFTGd6K011UFhRcjkvMGFCMWlVeEdOYWsrb08rb09JL1pIQ0xxWEJYVEpvRG4rOTlJSDhmdTJCeWhXSnhEZWFHcysvakRVYUxVbHB1QlZubzhGT0JRPT0iLCJ2ZXJpZmllZCI6dHJ1ZX0sImlkZW50aXR5Ijp7ImxlZ0lkIjoxLCJtaXJhVHhuSWQiOiJ0eG4tMzBlNTMzNGFkZGYzIiwidGhyZWFkSWQiOiJ0eG4tMzBlNTMzNGFkZGYzIn0sImlucHV0SGFzaCI6InNoYTI1NjpiOTY1ZTk1NmJhOWE2Y2M4MTQ4YWFkZjkzNGI2YjI4MDIxOTk0MTc3ZDJjNDRhYWM5ZDQ0YzE0Yzg0YjI3NzdmIiwibGFuZ2dyYXBoIjp7fSwib3RlbCI6e30sInJlY29yZFR5cGUiOiJTUEFOIiwic2RrIjoibWlyYS1zZGsvMC4xLjAiLCJ0c01zIjoxNzg2ODM5NjQ2MjkwfSwicHJlZGljYXRlVHlwZSI6Imh0dHBzOi8vbGlvcmEtYWkuY28vbWlyYS9hZ2VudC1zdGVwL3YxIiwic3ViamVjdCI6W3siZGlnZXN0Ijp7InNoYTI1NiI6Ijg5OWVhMWY4YWZlOGQwYzc2MGZlMmY0NWJhZmNhZTc3NTczYWI3Y2JhMmViZGJhNGQ2NjA4ZmNkZWQ5ZTIwMjEifSwibmFtZSI6Im91dHB1dCJ9XX0=",
+    "signatures": [
+     {
+      "keyid": "18d12315",
+      "sig": "j9cb2F70M1daQkxZa+qJ0IBMnvgLRZJDSHzgagFuuv9282oIms6D6d5bBdVCA+FiiGatVPEx9RcAP+kne5zQDw=="
+     }
+    ],
+    "recordHash": "594f86c2ddd2d2879fb5aca11691e2343c218090ed9e2e0b71cc74ee7139a16c"
+   },
+   "proof": {
+    "leaf_pos": 35,
+    "mmr_size": 38,
+    "path": [
+     "ed9ee5edcc31b5738389754f8a54d404f78aef50bf53ce2421d0bea2af35a412",
+     "810c0d3a7b90d80f4329cc241bc61c02c35a3f65f0114b1f6d721c94b522c9ab"
+    ],
+    "peaks": [
+     "fb10e00806e40a647b4dcddad298644aead359313c4f75c634ddf7a8a3cdbafe",
+     "7bfee82f05804a4397de2cbb106293c0f8dd6c5efab5afcbb28b11f34df396b0"
+    ]
+   }
+  }
+ ]
+}

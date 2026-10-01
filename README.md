@@ -11,8 +11,24 @@ on purpose:
   verifiable log. After the fact, nobody can quietly change it.
 
 ```bash
-pip install mira-agent-sdk
+pip install "mira-agent-core @ git+https://github.com/shihabhasan/mira-agent-sdk@v0.11.1#subdirectory=core"
+pip install "mira-agent-sdk @ git+https://github.com/shihabhasan/mira-agent-sdk@v0.11.1"
 ```
+
+Not on PyPI yet, so both install from this repository — `mira-agent-core`
+first, because the SDK depends on it. Python 3.11 or later.
+
+## Try it without an account
+
+[`examples/`](examples/) has five short programs that run with no account and
+no network: the gate deciding against a real rulebook, authority narrowing
+across three boundaries (and a widened or tampered hop being refused), redaction
+at a boundary, plugging in your own examiner, and verifying exported evidence
+offline. Start with `python examples/01_local_gate.py`.
+
+The SDK is a substrate, not an application: keep your own policy tooling,
+models, orchestration and audit tools, and use the execution-authority and
+evidence pieces underneath them.
 
 ## The gate
 
@@ -393,8 +409,10 @@ signature would verify against bytes nobody stored — `tests/test_conformance.p
 pins that against vectors generated from the server.
 
 ```bash
-pip install mira-agent-core     # just the verifier and primitives
-pip install mira-agent-sdk      # the full client (pulls core in)
+# just the verifier and primitives
+pip install "mira-agent-core @ git+https://github.com/shihabhasan/mira-agent-sdk@v0.11.1#subdirectory=core"
+# the full client (install core first; the SDK depends on it)
+pip install "mira-agent-sdk @ git+https://github.com/shihabhasan/mira-agent-sdk@v0.11.1"
 ```
 
 There is a third, optional: `core-rs/` is the same core in Rust. Not for speed
@@ -412,13 +430,16 @@ other.
 
 ## Status
 
-`mira_agent.msep` (0.4.0): the protocol core, ported from and pinned to the
-control plane's implementation by `vectors/msep.json`; 100+ tests, the same
-suites the server runs.
+Version 0.11. `mira_agent.msep` is the protocol core, ported from and pinned to
+the control plane's implementation by `vectors/msep.json`; the server's own
+parity tests compare the two directly. 345 tests.
 
-Working: the gate, client-side signing, batched ingest, offline verification,
-SPIFFE identity binding, the Cedar front-end, the OpenTelemetry span processor,
-and witness co-signature verification.
+Working: the gate with all six dispositions enforced where the action happens
+(release, redact, gate, elevate, interdict, recover, plus reroute), signed
+examiner readings and the fail-closed `on_unavailable` rule, client-side
+signing, batched ingest, offline verification including pinned witness
+co-signatures, SPIFFE identity binding, the Cedar front-end and the
+OpenTelemetry span processor.
 
 Not yet: the MCP interceptor. SEP-1763 is still a draft with Go and C#
 reference implementations first, so the practical path there is a stdio proxy —
